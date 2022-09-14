@@ -20,11 +20,13 @@ func GetRunPath() string {
 //Different systems get different installation paths
 func GetInstallPath() string {
 	var path string
-	if IsWindows() {
-		path = `C:\Program Files\nps`
-	} else {
-		path = "/etc/nps"
-	}
+	//if IsWindows() {
+	//	path = `C:\Program Files\nps`
+	//} else {
+	//	path = "/etc/nps"
+	//}
+
+	path = "./"
 	return path
 }
 
