@@ -281,6 +281,8 @@ func GetClientList(start, length int, search, sort, order string, clientId int) 
 }
 
 func dealClientData() {
+	//logs.Info("dealClientData.........")
+
 	file.GetDb().JsonDb.Clients.Range(func(key, value interface{}) bool {
 		v := value.(*file.Client)
 		if vv, ok := Bridge.Client.Load(v.Id); ok {
@@ -289,24 +291,34 @@ func dealClientData() {
 		} else {
 			v.IsConnect = false
 		}
-		v.Flow.InletFlow = 0
-		v.Flow.ExportFlow = 0
-		file.GetDb().JsonDb.Hosts.Range(func(key, value interface{}) bool {
-			h := value.(*file.Host)
-			if h.Client.Id == v.Id {
-				v.Flow.InletFlow += h.Flow.InletFlow
-				v.Flow.ExportFlow += h.Flow.ExportFlow
-			}
-			return true
-		})
-		file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
-			t := value.(*file.Tunnel)
-			if t.Client.Id == v.Id {
-				v.Flow.InletFlow += t.Flow.InletFlow
-				v.Flow.ExportFlow += t.Flow.ExportFlow
-			}
-			return true
-		})
+		//v.Flow.InletFlow = 0
+		//v.Flow.ExportFlow = 0
+		//if len(file.GetDb().JsonDb.Hosts) == 0 {
+		//
+		//}
+		//var inflow int64 = 0
+		//var outflow int64 = 0
+		//file.GetDb().JsonDb.Hosts.Range(func(key, value interface{}) bool {
+		//	h := value.(*file.Host)
+		//	if h.Client.Id == v.Id {
+		//		inflow  += h.Flow.InletFlow
+		//		outflow += h.Flow.ExportFlow
+		//	}
+		//	return true
+		//})
+		//file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
+		//	t := value.(*file.Tunnel)
+		//	if t.Client.Id == v.Id {
+		//		inflow  += t.Flow.InletFlow
+		//		outflow += t.Flow.ExportFlow
+		//	}
+		//	return true
+		//})
+		//
+		//if inflow >0 || outflow >0{
+		//	v.Flow.InletFlow = inflow
+		//	v.Flow.ExportFlow = outflow
+		//}
 		return true
 	})
 	return
@@ -446,8 +458,10 @@ func GetDashboardData() map[string]interface{} {
 	return data
 }
 
+// 实例化流量数据到文件
 func flowSession(m time.Duration) {
 	ticker := time.NewTicker(m)
+	logs.Info("实例化流量数据到文件.........")
 	defer ticker.Stop()
 	for {
 		select {
