@@ -51,7 +51,8 @@ func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow) (err error) {
 				//written += int64(nw)
 				flow.Add(int64(nw), int64(nw))
 
-				if (flow.ExportFlow + flow.InletFlow) >= (flow.FlowLimit * 1024 * 1024) {
+				// <<20 = 1024 * 1024
+				if flow.FlowLimit > 0 && (flow.FlowLimit<<20) < (flow.ExportFlow+flow.InletFlow) {
 					logs.Info("流量已经超出.........")
 					break
 				}
