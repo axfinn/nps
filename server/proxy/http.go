@@ -3,14 +3,13 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
+	"ehang.io/nps/lib/goroutine"
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 
 	"ehang.io/nps/bridge"
@@ -112,9 +111,11 @@ func (s *httpServer) handleTunneling(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
 	}
 	s.handleHttp(conn.NewConn(c), r)
+
 }
 
 func (s *httpServer) handleHttp(c *conn.Conn, r *http.Request) {
+
 	var (
 		host       *file.Host
 		target     net.Conn
@@ -176,49 +177,68 @@ reset:
 				c.Close()
 			}
 		}()
-		for {
-			if resp, err := http.ReadResponse(bufio.NewReader(connClient), r); err != nil || resp == nil || r == nil {
-				// if there got broken pipe, http.ReadResponse will get a nil
-				return
-			} else {
-				//if the cache is start and the response is in the extension,store the response to the cache list
-				if s.useCache && r.URL != nil && strings.Contains(r.URL.Path, ".") {
-					b, err := httputil.DumpResponse(resp, true)
-					if err != nil {
-						return
-					}
-					c.Write(b)
-					host.Flow.Add(0, int64(len(b)))
-					s.cache.Add(filepath.Join(host.Host, r.URL.Path), b)
-				} else {
-					lenConn := conn.NewLenConn(c)
-					if err := resp.Write(lenConn); err != nil {
-						logs.Error(err)
-						return
-					}
-					host.Flow.Add(0, int64(lenConn.Len))
-				}
+
+		if true {
+			//c.Write([]byte("test"))
+			//c.Close()
+			//return
+			// http 这里使用数据包交换
+			wg1 := new(sync.WaitGroup)
+			wg1.Add(1)
+			err := goroutine.CopyConnsPool.Invoke(goroutine.NewConns(connClient, c, host.Client.Flow, wg1))
+			wg1.Wait()
+			if err != nil {
+				logs.Error(err)
 			}
+
+			return
 		}
+
+		//for {
+		//	if resp, err := http.ReadResponse(bufio.NewReader(connClient), r); err != nil || resp == nil || r == nil {
+		//		// if there got broken pipe, http.ReadResponse will get a nil
+		//		return
+		//	} else {
+		//		//if the cache is start and the response is in the extension,store the response to the cache list
+		//		if s.useCache && r.URL != nil && strings.Contains(r.URL.Path, ".") {
+		//			b, err := httputil.DumpResponse(resp, true)
+		//			if err != nil {
+		//				return
+		//			}
+		//			c.Write(b)
+		//			host.Client.Flow.Add(int64(lenConn.Len), int64(lenConn.Len))
+		//			//host.Flow.Add(0, int64(len(b)))
+		//			s.cache.Add(filepath.Join(host.Host, r.URL.Path), b)
+		//		} else {
+		//			lenConn := conn.NewLenConn(c)
+		//			if err := resp.Write(lenConn); err != nil {
+		//				logs.Error(err)
+		//				return
+		//			}
+		//			host.Client.Flow.Add(int64(lenConn.Len), int64(lenConn.Len))
+		//			//host.Flow.Add(0, int64(lenConn.Len))
+		//		}
+		//	}
+		//}
 	}()
 
 	for {
 		//if the cache start and the request is in the cache list, return the cache
-		if s.useCache {
-			if v, ok := s.cache.Get(filepath.Join(host.Host, r.URL.Path)); ok {
-				n, err := c.Write(v.([]byte))
-				if err != nil {
-					break
-				}
-				logs.Trace("%s request, method %s, host %s, url %s, remote address %s, return cache", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String())
-				host.Flow.Add(0, int64(n))
-				//if return cache and does not create a new conn with client and Connection is not set or close, close the connection.
-				if strings.ToLower(r.Header.Get("Connection")) == "close" || strings.ToLower(r.Header.Get("Connection")) == "" {
-					break
-				}
-				goto readReq
-			}
-		}
+		//if s.useCache {
+		//	if v, ok := s.cache.Get(filepath.Join(host.Host, r.URL.Path)); ok {
+		//		n, err := c.Write(v.([]byte))
+		//		if err != nil {
+		//			break
+		//		}
+		//		logs.Trace("%s request, method %s, host %s, url %s, remote address %s, return cache", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String())
+		//		host.Flow.Add(0, int64(n))
+		//		//if return cache and does not create a new conn with client and Connection is not set or close, close the connection.
+		//		if strings.ToLower(r.Header.Get("Connection")) == "close" || strings.ToLower(r.Header.Get("Connection")) == "" {
+		//			break
+		//		}
+		//		goto readReq
+		//	}
+		//}
 
 		//change the host and header and set proxy setting
 		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
@@ -229,9 +249,11 @@ reset:
 			logs.Error(err)
 			break
 		}
-		host.Flow.Add(int64(lenConn.Len), 0)
 
-	readReq:
+		//host.Client.Flow.Add(int64(lenConn.Len),int64(lenConn.Len))
+		//host.Flow.Add(int64(lenConn.Len), 0)
+
+		//readReq:
 		//read req from connection
 		if r, err = http.ReadRequest(bufio.NewReader(c)); err != nil {
 			break
