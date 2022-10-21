@@ -19,6 +19,7 @@ import (
 	"ehang.io/nps/lib/file"
 	"ehang.io/nps/server/connection"
 	"github.com/astaxie/beego/logs"
+	"github.com/gorilla/websocket"
 )
 
 type httpServer struct {
@@ -100,17 +101,48 @@ func (s *httpServer) Close() error {
 	return nil
 }
 
+//类似一个c++类，里面的属性初始化的时候是是可以赋值的
+var upgrader = websocket.Upgrader{
+	//此处给CheckOrigin默认一个返回true保证，否则会出现报错自动跳转
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+} // use default options
+
 func (s *httpServer) handleTunneling(w http.ResponseWriter, r *http.Request) {
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
-		return
+
+	if r.Header.Get("Upgrade") != "" {
+
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		for {
+			mt, message, err := c.ReadMessage()
+			if err != nil {
+				break
+			}
+			w.Write(message)
+			err = c.WriteMessage(mt, message)
+			if err != nil {
+				break
+			}
+		}
+
+	} else {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+			return
+		}
+		c, _, err := hijacker.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		}
+
+		s.handleHttp(conn.NewConn(c), r)
 	}
-	c, _, err := hijacker.Hijack()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-	}
-	s.handleHttp(conn.NewConn(c), r)
 
 }
 
