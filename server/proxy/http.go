@@ -3,7 +3,14 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
+	"ehang.io/nps/bridge"
+	"ehang.io/nps/lib/cache"
+	"ehang.io/nps/lib/common"
+	"ehang.io/nps/lib/conn"
+	"ehang.io/nps/lib/file"
 	"ehang.io/nps/lib/goroutine"
+	"ehang.io/nps/server/connection"
+	"github.com/astaxie/beego/logs"
 	"io"
 	"net"
 	"net/http"
@@ -11,15 +18,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-
-	"ehang.io/nps/bridge"
-	"ehang.io/nps/lib/cache"
-	"ehang.io/nps/lib/common"
-	"ehang.io/nps/lib/conn"
-	"ehang.io/nps/lib/file"
-	"ehang.io/nps/server/connection"
-	"github.com/astaxie/beego/logs"
-	"github.com/gorilla/websocket"
 )
 
 type httpServer struct {
@@ -101,35 +99,11 @@ func (s *httpServer) Close() error {
 	return nil
 }
 
-//类似一个c++类，里面的属性初始化的时候是是可以赋值的
-var upgrader = websocket.Upgrader{
-	//此处给CheckOrigin默认一个返回true保证，否则会出现报错自动跳转
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-} // use default options
-
 func (s *httpServer) handleTunneling(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("Upgrade") != "" {
-
-		c, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer c.Close()
-		for {
-			mt, message, err := c.ReadMessage()
-			if err != nil {
-				break
-			}
-			w.Write(message)
-			err = c.WriteMessage(mt, message)
-			if err != nil {
-				break
-			}
-		}
-
+		rProxy := NewHttpReverseProxy(s)
+		rProxy.ServeHTTP(w, r)
 	} else {
 		hijacker, ok := w.(http.Hijacker)
 		if !ok {
@@ -211,9 +185,6 @@ reset:
 		}()
 
 		if true {
-			//c.Write([]byte("test"))
-			//c.Close()
-			//return
 			// http 这里使用数据包交换
 			wg1 := new(sync.WaitGroup)
 			wg1.Add(1)
@@ -225,53 +196,9 @@ reset:
 
 			return
 		}
-
-		//for {
-		//	if resp, err := http.ReadResponse(bufio.NewReader(connClient), r); err != nil || resp == nil || r == nil {
-		//		// if there got broken pipe, http.ReadResponse will get a nil
-		//		return
-		//	} else {
-		//		//if the cache is start and the response is in the extension,store the response to the cache list
-		//		if s.useCache && r.URL != nil && strings.Contains(r.URL.Path, ".") {
-		//			b, err := httputil.DumpResponse(resp, true)
-		//			if err != nil {
-		//				return
-		//			}
-		//			c.Write(b)
-		//			host.Client.Flow.Add(int64(lenConn.Len), int64(lenConn.Len))
-		//			//host.Flow.Add(0, int64(len(b)))
-		//			s.cache.Add(filepath.Join(host.Host, r.URL.Path), b)
-		//		} else {
-		//			lenConn := conn.NewLenConn(c)
-		//			if err := resp.Write(lenConn); err != nil {
-		//				logs.Error(err)
-		//				return
-		//			}
-		//			host.Client.Flow.Add(int64(lenConn.Len), int64(lenConn.Len))
-		//			//host.Flow.Add(0, int64(lenConn.Len))
-		//		}
-		//	}
-		//}
 	}()
 
 	for {
-		//if the cache start and the request is in the cache list, return the cache
-		//if s.useCache {
-		//	if v, ok := s.cache.Get(filepath.Join(host.Host, r.URL.Path)); ok {
-		//		n, err := c.Write(v.([]byte))
-		//		if err != nil {
-		//			break
-		//		}
-		//		logs.Trace("%s request, method %s, host %s, url %s, remote address %s, return cache", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String())
-		//		host.Flow.Add(0, int64(n))
-		//		//if return cache and does not create a new conn with client and Connection is not set or close, close the connection.
-		//		if strings.ToLower(r.Header.Get("Connection")) == "close" || strings.ToLower(r.Header.Get("Connection")) == "" {
-		//			break
-		//		}
-		//		goto readReq
-		//	}
-		//}
-
 		//change the host and header and set proxy setting
 		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
 		logs.Trace("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
@@ -281,9 +208,6 @@ reset:
 			logs.Error(err)
 			break
 		}
-
-		//host.Client.Flow.Add(int64(lenConn.Len),int64(lenConn.Len))
-		//host.Flow.Add(int64(lenConn.Len), 0)
 
 		//readReq:
 		//read req from connection
