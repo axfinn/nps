@@ -12,7 +12,7 @@
 ## 更新日志
 
 - 2022-10-27  
-***新增***：在管理面板登录时开启验证码校验，开启：nps.conf `open_captcha=true`，感谢 [@dongFangTuring](https://github.com/dongFangTuring) 提供的PR  
+***新增***：在管理面板登录时开启验证码校验，开启方式：nps.conf `open_captcha=true`，感谢 [@dongFangTuring](https://github.com/dongFangTuring) 提供的PR  
 
   
 - 2022-10-24:     
