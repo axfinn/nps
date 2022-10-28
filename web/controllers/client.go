@@ -6,6 +6,7 @@ import (
 	"ehang.io/nps/lib/rate"
 	"ehang.io/nps/server"
 	"github.com/astaxie/beego"
+	"strings"
 )
 
 type ClientController struct {
@@ -96,6 +97,7 @@ func (s *ClientController) Edit() {
 			s.error()
 		} else {
 			s.Data["c"] = c
+			s.Data["BlackIpList"] = strings.Join(c.BlackIpList, "\r\n")
 		}
 		s.SetInfo("edit client")
 		s.display()
@@ -143,10 +145,29 @@ func (s *ClientController) Edit() {
 				c.Rate = rate.NewRate(int64(2 << 23))
 				c.Rate.Start()
 			}
+
+			c.BlackIpList = RemoveRepeatedElement(strings.Split(s.getEscapeString("blackiplist"), "\r\n"))
 			file.GetDb().JsonDb.StoreClientsToJsonFile()
 		}
 		s.AjaxOk("save success")
 	}
+}
+
+func RemoveRepeatedElement(arr []string) (newArr []string) {
+	newArr = make([]string, 0)
+	for i := 0; i < len(arr); i++ {
+		repeat := false
+		for j := i + 1; j < len(arr); j++ {
+			if arr[i] == arr[j] {
+				repeat = true
+				break
+			}
+		}
+		if !repeat {
+			newArr = append(newArr, arr[i])
+		}
+	}
+	return
 }
 
 //更改状态

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sort"
 	"sync"
 
 	"ehang.io/nps/bridge"
@@ -83,8 +84,24 @@ func (s *BaseServer) CheckFlowAndConnNum(client *file.Client) error {
 	return nil
 }
 
+func in(target string, str_array []string) bool {
+	sort.Strings(str_array)
+	index := sort.SearchStrings(str_array, target)
+	if index < len(str_array) && str_array[index] == target {
+		return true
+	}
+	return false
+}
+
 //create a new connection and start bytes copying
-func (s *BaseServer) DealClient(c *conn.Conn, client *file.Client, addr string, rb []byte, tp string, f func(), flow *file.Flow, localProxy bool) error {
+func (s *BaseServer) DealClient(c *conn.Conn, client *file.Client, addr string,
+	rb []byte, tp string, f func(), flow *file.Flow, localProxy bool, task *file.Tunnel) error {
+
+	// 判断访问地址是否在黑明单内
+	if common.IsBlackIp(c, client) {
+		return nil
+	}
+
 	link := conn.NewLink(tp, addr, client.Cnf.Crypt, client.Cnf.Compress, c.Conn.RemoteAddr().String(), localProxy)
 	if target, err := s.bridge.SendLinkInfo(client.Id, link, s.task); err != nil {
 		logs.Warn("get connection from client id %d  error %s", client.Id, err.Error())
@@ -94,7 +111,7 @@ func (s *BaseServer) DealClient(c *conn.Conn, client *file.Client, addr string, 
 		if f != nil {
 			f()
 		}
-		conn.CopyWaitGroup(target, c.Conn, link.Crypt, link.Compress, client.Rate, flow, true, rb)
+		conn.CopyWaitGroup(target, c.Conn, link.Crypt, link.Compress, client.Rate, flow, true, rb, task)
 	}
 	return nil
 }

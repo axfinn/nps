@@ -165,6 +165,12 @@ reset:
 		logs.Warn(err.Error())
 		return
 	}
+
+	// 判断访问地址是否在黑明单内
+	if common.IsBlackIp(c, host.Client) {
+		return
+	}
+
 	lk = conn.NewLink("http", targetAddr, host.Client.Cnf.Crypt, host.Client.Cnf.Compress, r.RemoteAddr, host.Target.LocalProxy)
 	if target, err = s.bridge.SendLinkInfo(host.Client.Id, lk, nil); err != nil {
 		logs.Notice("connect to target %s error %s", lk.Host, err)
@@ -188,7 +194,7 @@ reset:
 			// http 这里使用数据包交换
 			wg1 := new(sync.WaitGroup)
 			wg1.Add(1)
-			err := goroutine.CopyConnsPool.Invoke(goroutine.NewConns(connClient, c, host.Client.Flow, wg1))
+			err := goroutine.CopyConnsPool.Invoke(goroutine.NewConns(connClient, c, host.Client.Flow, wg1, nil))
 			wg1.Wait()
 			if err != nil {
 				logs.Error(err)

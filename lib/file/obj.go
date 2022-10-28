@@ -51,6 +51,7 @@ type Client struct {
 	ConfigConnAllow bool       //is allow connected by config file
 	MaxTunnelNum    int
 	Version         string
+	BlackIpList     []string
 	sync.RWMutex
 }
 
@@ -138,6 +139,7 @@ type Tunnel struct {
 	Remark       string
 	TargetAddr   string
 	NoStore      bool
+	IsHttp       bool
 	LocalPath    string
 	StripPre     string
 	Target       *Target

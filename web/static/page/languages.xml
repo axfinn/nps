@@ -149,6 +149,10 @@
 		<zh-CN>Basic 认证用户名</zh-CN>
 		<en-US>Basic authentication username</en-US>
 	</lang>
+	<lang id="word-ishttp">
+		<zh-CN>是否为HTTP</zh-CN>
+		<en-US>Is HTTP</en-US>
+	</lang>
 	<lang id="word-bridgingmode">
 		<zh-CN>桥接模式</zh-CN>
 		<en-US>Bridging mode</en-US>
@@ -690,6 +694,25 @@
 		<zh-CN>留空表示不受限制</zh-CN>
 		<en-US>Empty means to be unrestricted</en-US>
 	</lang>
+
+
+	<lang id="word-blackiplist">
+		<zh-CN>IP黑名单（防暴力破解）</zh-CN>
+		<en-US>IP Black List</en-US>
+	</lang>
+
+	<lang id="info-suchasblackiplist">
+		<zh-CN>例如&#10;10.1.50.203&#10;10.1.50.202</zh-CN>
+		<en-US>such as&#10;10.1.50.203&#10;10.1.50.202</en-US>
+	</lang>
+
+
+	<lang id="info-descblackiplist">
+		<zh-CN>一行一个，IPV4,不支持范围匹配</zh-CN>
+		<en-US>IPV4</en-US>
+	</lang>
+
+
 
 	<confirm>
 		<lang id="delete">
