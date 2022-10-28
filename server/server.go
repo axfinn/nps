@@ -462,7 +462,6 @@ func GetDashboardData() map[string]interface{} {
 // 实例化流量数据到文件
 func flowSession(m time.Duration) {
 	ticker := time.NewTicker(m)
-	logs.Info("实例化流量数据到文件.........")
 	defer ticker.Stop()
 	for {
 		select {

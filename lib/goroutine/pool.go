@@ -7,6 +7,7 @@ import (
 	"github.com/panjf2000/ants/v2"
 	"io"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -40,11 +41,24 @@ func newConnGroup(dst, src io.ReadWriteCloser, wg *sync.WaitGroup, n *int64, flo
 func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow) (err error) {
 	buf := common.CopyBuff.Get()
 	defer common.CopyBuff.Put(buf)
+	i := 0
 	for {
 		nr, er := src.Read(buf)
 		//if len(pr)>0 && pr[0] && nr > 50 {
 		//	logs.Warn(string(buf[:50]))
 		//}
+
+		if i == 0 {
+			firstLine := string(buf[0:nr])
+			if len(firstLine) > 3 {
+				method := firstLine[0:3]
+				if method != "" && (method == "HTT" || method == "GET" || method == "POS" || method == "HEA" || method == "PUT" || method == "DEL") {
+					logs.Info("HTTP Request: " + firstLine[0:strings.Index(firstLine, "\n")])
+				}
+			}
+		}
+
+		i++
 		if nr > 0 {
 			nw, ew := dst.Write(buf[0:nr])
 			if nw > 0 {

@@ -103,6 +103,8 @@ func ProcessTunnel(c *conn.Conn, s *TunnelModeServer) error {
 		logs.Warn("tcp port %d ,client id %d,task id %d connect error %s", s.task.Port, s.task.Client.Id, s.task.Id, err.Error())
 		return err
 	}
+
+	logs.Info(c.RemoteAddr().String())
 	//return s.DealClient(c, s.task.Client, targetAddr, nil, common.CONN_TCP, nil, s.task.Flow, s.task.Target.LocalProxy)
 	return s.DealClient(c, s.task.Client, targetAddr, nil, common.CONN_TCP, nil, s.task.Client.Flow, s.task.Target.LocalProxy)
 }
