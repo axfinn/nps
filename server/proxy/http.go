@@ -166,8 +166,9 @@ reset:
 		return
 	}
 
-	// 判断访问地址是否在黑明单内
-	if common.IsBlackIp(c, host.Client) {
+	// 判断访问地址是否在黑名单内
+	if common.IsBlackIp(c.RemoteAddr().String(), host.Client.VerifyKey, host.Client.BlackIpList) {
+		c.Close()
 		return
 	}
 
@@ -207,7 +208,7 @@ reset:
 	for {
 		//change the host and header and set proxy setting
 		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
-		logs.Trace("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
+		logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
 		//write
 		lenConn = conn.NewLenConn(connClient)
 		if err := r.Write(lenConn); err != nil {

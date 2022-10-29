@@ -104,8 +104,6 @@ func ProcessTunnel(c *conn.Conn, s *TunnelModeServer) error {
 		return err
 	}
 
-	logs.Info(c.RemoteAddr().String())
-	//return s.DealClient(c, s.task.Client, targetAddr, nil, common.CONN_TCP, nil, s.task.Flow, s.task.Target.LocalProxy)
 	return s.DealClient(c, s.task.Client, targetAddr, nil, common.CONN_TCP, nil, s.task.Client.Flow, s.task.Target.LocalProxy, s.task)
 }
 
@@ -125,7 +123,6 @@ func ProcessHttp(c *conn.Conn, s *TunnelModeServer) error {
 	if err := s.auth(r, c, s.task.Client.Cnf.U, s.task.Client.Cnf.P); err != nil {
 		return err
 	}
-	//return s.DealClient(c, s.task.Client, addr, rb, common.CONN_TCP, nil, s.task.Flow, s.task.Target.LocalProxy)
 	return s.DealClient(c, s.task.Client, addr, rb, common.CONN_TCP, nil, s.task.Client.Flow, s.task.Target.LocalProxy, nil)
 
 }

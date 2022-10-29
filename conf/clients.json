@@ -1,2 +1,0 @@
-{"Cnf":{"U":"","P":"","Compress":false,"Crypt":false},"Id":36,"VerifyKey":"vg4v5dvsmrjet72g","Addr":"127.0.0.1","Remark":"1","Status":true,"IsConnect":true,"RateLimit":1024,"Flow":{"ExportFlow":12984695,"InletFlow":12984695,"FlowLimit":30},"Rate":{"NowRate":0},"NoStore":false,"NoDisplay":false,"MaxConn":0,"NowConn":1,"WebUserName":"","WebPassword":"","ConfigConnAllow":false,"MaxTunnelNum":0,"Version":"0.26.10","BlackIpList":["123.0.0.1","127.0.0.1","127.0.0.2","127.0.0.3"]}
-*#*

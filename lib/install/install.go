@@ -239,6 +239,7 @@ func InstallNpc() {
 
 func InstallNps() string {
 	path := common.GetInstallPath()
+	log.Println("install path:" + path)
 	if common.FileExists(path) {
 		MkidrDirAll(path, "web/static", "web/views")
 	} else {

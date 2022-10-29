@@ -12,12 +12,13 @@ import (
 )
 
 type connGroup struct {
-	src  io.ReadWriteCloser
-	dst  io.ReadWriteCloser
-	wg   *sync.WaitGroup
-	n    *int64
-	flow *file.Flow
-	task *file.Tunnel
+	src    io.ReadWriteCloser
+	dst    io.ReadWriteCloser
+	wg     *sync.WaitGroup
+	n      *int64
+	flow   *file.Flow
+	task   *file.Tunnel
+	remote string
 }
 
 //func newConnGroup(dst, src io.ReadWriteCloser, wg *sync.WaitGroup, n *int64) connGroup {
@@ -29,18 +30,19 @@ type connGroup struct {
 //	}
 //}
 
-func newConnGroup(dst, src io.ReadWriteCloser, wg *sync.WaitGroup, n *int64, flow *file.Flow, task *file.Tunnel) connGroup {
+func newConnGroup(dst, src io.ReadWriteCloser, wg *sync.WaitGroup, n *int64, flow *file.Flow, task *file.Tunnel, remote string) connGroup {
 	return connGroup{
-		src:  src,
-		dst:  dst,
-		wg:   wg,
-		n:    n,
-		flow: flow,
-		task: task,
+		src:    src,
+		dst:    dst,
+		wg:     wg,
+		n:      n,
+		flow:   flow,
+		task:   task,
+		remote: remote,
 	}
 }
 
-func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel) (err error) {
+func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel, remote string) (err error) {
 	buf := common.CopyBuff.Get()
 	defer common.CopyBuff.Put(buf)
 	i := 0
@@ -56,7 +58,16 @@ func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel
 			if len(firstLine) > 3 {
 				method := firstLine[0:3]
 				if method != "" && (method == "HTT" || method == "GET" || method == "POS" || method == "HEA" || method == "PUT" || method == "DEL") {
-					logs.Info("HTTP Request: " + firstLine[0:strings.Index(firstLine, "\n")])
+					if method != "HTT" {
+						heads := strings.Split(firstLine, "\r\n")
+						if len(heads) >= 2 {
+							logs.Info("HTTP Request method %s, %s, remote address %s, target %s", heads[0], heads[1], remote, task.Target.TargetStr)
+						}
+						//logs.Info("HTTP Request: " + firstLine[0:strings.Index(firstLine, "\n")])
+						//logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
+
+					}
+
 					task.IsHttp = true
 				}
 			}
@@ -100,7 +111,7 @@ func copyConnGroup(group interface{}) {
 		return
 	}
 	var err error
-	err = CopyBuffer(cg.dst, cg.src, cg.flow, cg.task)
+	err = CopyBuffer(cg.dst, cg.src, cg.flow, cg.task, cg.remote)
 	if err != nil {
 		cg.src.Close()
 		cg.dst.Close()
@@ -137,9 +148,10 @@ func copyConns(group interface{}) {
 	wg := new(sync.WaitGroup)
 	wg.Add(2)
 	var in, out int64
-	_ = connCopyPool.Invoke(newConnGroup(conns.conn1, conns.conn2, wg, &in, conns.flow, conns.task))
+	remoteAddr := conns.conn2.RemoteAddr().String()
+	_ = connCopyPool.Invoke(newConnGroup(conns.conn1, conns.conn2, wg, &in, conns.flow, conns.task, remoteAddr))
 	// outside to mux : incoming
-	_ = connCopyPool.Invoke(newConnGroup(conns.conn2, conns.conn1, wg, &out, conns.flow, conns.task))
+	_ = connCopyPool.Invoke(newConnGroup(conns.conn2, conns.conn1, wg, &out, conns.flow, conns.task, remoteAddr))
 	// mux to outside : outgoing
 	wg.Wait()
 	//if conns.flow != nil {

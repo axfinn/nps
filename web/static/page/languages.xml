@@ -712,6 +712,10 @@
 		<en-US>IPV4</en-US>
 	</lang>
 
+	<lang id="word-blackip">
+		<zh-CN>IP黑名单</zh-CN>
+		<en-US>IP Black List</en-US>
+	</lang>
 
 
 	<confirm>

@@ -32,8 +32,6 @@ var (
 
 func main() {
 
-	//configPath := flag.String("conf", "./", "主机")
-
 	flag.Parse()
 	// init log
 	if *ver {

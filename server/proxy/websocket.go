@@ -224,7 +224,6 @@ func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 }
 
 func (p *ReverseProxy) serveWebSocket(rw http.ResponseWriter, req *http.Request) {
-	logs.Info("serveWebSocket...")
 	if p.WebSocketDialContext == nil {
 		rw.WriteHeader(500)
 		return

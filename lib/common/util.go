@@ -2,8 +2,6 @@ package common
 
 import (
 	"bytes"
-	"ehang.io/nps/lib/conn"
-	"ehang.io/nps/lib/file"
 	"ehang.io/nps/lib/version"
 	"encoding/base64"
 	"encoding/binary"
@@ -288,11 +286,11 @@ func in(target string, str_array []string) bool {
 	return false
 }
 
-func IsBlackIp(c *conn.Conn, client *file.Client) bool {
-	// 判断访问地址是否在黑明单内
-	ip := GetIpByAddr(c.RemoteAddr().String())
-	if in(ip, client.BlackIpList) {
-		logs.Error("IP地址[" + ip + "]在隧道[" + client.VerifyKey + "]黑明单列表内")
+// 判断访问地址是否在黑名单内
+func IsBlackIp(ipPort, vkey string, blackIpList []string) bool {
+	ip := GetIpByAddr(ipPort)
+	if in(ip, blackIpList) {
+		logs.Error("IP地址[" + ip + "]在隧道[" + vkey + "]黑名单列表内")
 		return true
 	}
 
