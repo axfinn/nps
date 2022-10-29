@@ -1,9 +1,11 @@
 package main
 
 import (
+	"ehang.io/nps/lib/daemon"
 	"flag"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -38,9 +40,17 @@ func main() {
 		common.PrintVersion()
 		return
 	}
-	if err := beego.LoadAppConfig("ini", filepath.Join(common.GetRunPath(), "conf", "nps.conf")); err != nil {
-		log.Fatalln("load config file error", err.Error())
+
+	if len(os.Args) <= 1 {
+		if err := beego.LoadAppConfig("ini", filepath.Join("./", "conf", "nps.conf")); err != nil {
+			log.Fatalln("load config file error", err.Error())
+		}
+	} else {
+		if err := beego.LoadAppConfig("ini", filepath.Join(common.GetRunPath(), "conf", "nps.conf")); err != nil {
+			log.Fatalln("load config file error", err.Error())
+		}
 	}
+
 	common.InitPProfFromFile()
 	if level = beego.AppConfig.String("log_level"); level == "" {
 		level = "7"
@@ -87,6 +97,69 @@ func main() {
 		wg.Add(1)
 		wg.Wait()
 		return
+	}
+
+	if len(os.Args) > 1 && os.Args[1] != "service" {
+		switch os.Args[1] {
+		case "reload":
+			daemon.InitDaemon("nps", common.GetRunPath(), common.GetTmpPath())
+			return
+		case "install":
+			// uninstall before
+			_ = service.Control(s, "stop")
+			_ = service.Control(s, "uninstall")
+
+			binPath := install.InstallNps()
+			svcConfig.Executable = binPath
+			s, err := service.New(prg, svcConfig)
+			if err != nil {
+				logs.Error(err)
+				return
+			}
+			err = service.Control(s, os.Args[1])
+			if err != nil {
+				logs.Error("Valid actions: %q\n%s", service.ControlAction, err.Error())
+			}
+			if service.Platform() == "unix-systemv" {
+				logs.Info("unix-systemv service")
+				confPath := "/etc/init.d/" + svcConfig.Name
+				os.Symlink(confPath, "/etc/rc.d/S90"+svcConfig.Name)
+				os.Symlink(confPath, "/etc/rc.d/K02"+svcConfig.Name)
+			}
+			return
+		case "start", "restart", "stop":
+			if service.Platform() == "unix-systemv" {
+				logs.Info("unix-systemv service")
+				cmd := exec.Command("/etc/init.d/"+svcConfig.Name, os.Args[1])
+				err := cmd.Run()
+				if err != nil {
+					logs.Error(err)
+				}
+				return
+			}
+			err := service.Control(s, os.Args[1])
+			if err != nil {
+				logs.Error("Valid actions: %q\n%s", service.ControlAction, err.Error())
+			}
+			return
+		case "uninstall":
+			err := service.Control(s, os.Args[1])
+			if err != nil {
+				logs.Error("Valid actions: %q\n%s", service.ControlAction, err.Error())
+			}
+			if service.Platform() == "unix-systemv" {
+				logs.Info("unix-systemv service")
+				os.Remove("/etc/rc.d/S90" + svcConfig.Name)
+				os.Remove("/etc/rc.d/K02" + svcConfig.Name)
+			}
+			return
+		case "update":
+			install.UpdateNps()
+			return
+		default:
+			logs.Error("command is not support")
+			return
+		}
 	}
 
 	_ = s.Run()
