@@ -65,7 +65,6 @@ func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel
 						}
 						//logs.Info("HTTP Request: " + firstLine[0:strings.Index(firstLine, "\n")])
 						//logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
-
 					}
 
 					task.IsHttp = true
@@ -78,13 +77,15 @@ func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel
 			nw, ew := dst.Write(buf[0:nr])
 			if nw > 0 {
 				//written += int64(nw)
-				flow.Add(int64(nw), int64(nw))
-
-				// <<20 = 1024 * 1024
-				if flow.FlowLimit > 0 && (flow.FlowLimit<<20) < (flow.ExportFlow+flow.InletFlow) {
-					logs.Info("流量已经超出.........")
-					break
+				if flow != nil {
+					flow.Add(int64(nw), int64(nw))
+					// <<20 = 1024 * 1024
+					if flow.FlowLimit > 0 && (flow.FlowLimit<<20) < (flow.ExportFlow+flow.InletFlow) {
+						logs.Info("流量已经超出.........")
+						break
+					}
 				}
+
 			}
 			if ew != nil {
 				err = ew
