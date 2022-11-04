@@ -5,6 +5,7 @@ import (
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/conn"
 	"ehang.io/nps/lib/file"
+	"ehang.io/nps/lib/goroutine"
 	"errors"
 	"github.com/astaxie/beego/logs"
 	"io"
@@ -61,22 +62,18 @@ func (rp *HttpReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 	req = req.WithContext(context.WithValue(req.Context(), "target", targetAddr))
 	req = req.WithContext(context.WithValue(req.Context(), "req", req))
 
-	rp.proxy.ServeHTTP(rw, req)
+	rp.proxy.ServeHTTP(rw, req, host)
 
 	defer host.Client.AddConn()
 }
 
 func (c *flowConn) Read(p []byte) (n int, err error) {
 	n, err = c.ReadWriteCloser.Read(p)
-	c.host.Client.Flow.Add(int64(n), int64(n))
-	//c.flowIn += int64(n)
 	return n, err
 }
 
 func (c *flowConn) Write(p []byte) (n int, err error) {
 	n, err = c.ReadWriteCloser.Write(p)
-	//c.flowOut += int64(n)
-	c.host.Client.Flow.Add(int64(n), int64(n))
 	return n, err
 }
 
@@ -217,13 +214,13 @@ func (p *ReverseProxy) errHandler(rw http.ResponseWriter, r *http.Request, e err
 	}
 }
 
-func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+func (p *ReverseProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request, host *file.Host) {
 	if IsWebsocketRequest(req) {
-		p.serveWebSocket(rw, req)
+		p.serveWebSocket(rw, req, host)
 	}
 }
 
-func (p *ReverseProxy) serveWebSocket(rw http.ResponseWriter, req *http.Request) {
+func (p *ReverseProxy) serveWebSocket(rw http.ResponseWriter, req *http.Request, host *file.Host) {
 	if p.WebSocketDialContext == nil {
 		rw.WriteHeader(500)
 		return
@@ -250,20 +247,22 @@ func (p *ReverseProxy) serveWebSocket(rw http.ResponseWriter, req *http.Request)
 	defer conn.Close()
 
 	req.Write(targetConn)
-	Join(conn, targetConn)
+
+	Join(conn, targetConn, host)
 }
 
-func Join(c1 io.ReadWriteCloser, c2 io.ReadWriteCloser) (inCount int64, outCount int64) {
+func Join(c1 io.ReadWriteCloser, c2 io.ReadWriteCloser, host *file.Host) (inCount int64, outCount int64) {
 	var wait sync.WaitGroup
 	pipe := func(to io.ReadWriteCloser, from io.ReadWriteCloser, count *int64) {
 		defer to.Close()
 		defer from.Close()
 		defer wait.Done()
-
-		*count, _ = io.Copy(to, from)
+		goroutine.CopyBuffer(to, from, host.Client.Flow, nil, "")
+		//*count, _ = io.Copy(to, from)
 	}
 
 	wait.Add(2)
+
 	go pipe(c1, c2, &inCount)
 	go pipe(c2, c1, &outCount)
 	wait.Wait()

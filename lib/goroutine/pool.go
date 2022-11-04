@@ -45,14 +45,17 @@ func newConnGroup(dst, src io.ReadWriteCloser, wg *sync.WaitGroup, n *int64, flo
 func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel, remote string) (err error) {
 	buf := common.CopyBuff.Get()
 	defer common.CopyBuff.Put(buf)
-	i := 0
 	for {
+		if len(buf) <= 0 {
+			break
+		}
 		nr, er := src.Read(buf)
+
 		//if len(pr)>0 && pr[0] && nr > 50 {
 		//	logs.Warn(string(buf[:50]))
 		//}
 
-		if task != nil && i == 0 {
+		if task != nil {
 			task.IsHttp = false
 			firstLine := string(buf[0:nr])
 			if len(firstLine) > 3 {
@@ -63,14 +66,11 @@ func CopyBuffer(dst io.Writer, src io.Reader, flow *file.Flow, task *file.Tunnel
 						if len(heads) >= 2 {
 							logs.Info("HTTP Request method %s, %s, remote address %s, target %s", heads[0], heads[1], remote, task.Target.TargetStr)
 						}
-						//logs.Info("HTTP Request: " + firstLine[0:strings.Index(firstLine, "\n")])
-						//logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
 					}
 
 					task.IsHttp = true
 				}
 			}
-			i++
 		}
 
 		if nr > 0 {

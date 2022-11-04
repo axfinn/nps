@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -121,7 +122,6 @@ func (s *httpServer) handleTunneling(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *httpServer) handleHttp(c *conn.Conn, r *http.Request) {
-
 	var (
 		host       *file.Host
 		target     net.Conn
@@ -191,34 +191,60 @@ reset:
 			}
 		}()
 
-		if true {
-			// http 这里使用数据包交换
-			wg1 := new(sync.WaitGroup)
-			wg1.Add(1)
-			err := goroutine.CopyConnsPool.Invoke(goroutine.NewConns(connClient, c, host.Client.Flow, wg1, nil))
-			wg1.Wait()
-			if err != nil {
-				logs.Error(err)
-			}
-
+		err1 := goroutine.CopyBuffer(c, connClient, host.Client.Flow, nil, "")
+		if err1 != nil {
 			return
+		}
+
+		resp, err := http.ReadResponse(bufio.NewReader(connClient), r)
+		if err != nil || resp == nil || r == nil {
+			// if there got broken pipe, http.ReadResponse will get a nil
+			//break
+			return
+		} else {
+			lenConn := conn.NewLenConn(c)
+			if err := resp.Write(lenConn); err != nil {
+				logs.Error(err)
+				//break
+				return
+			}
 		}
 	}()
 
 	for {
+		//if the cache start and the request is in the cache list, return the cache
+		if s.useCache {
+			if v, ok := s.cache.Get(filepath.Join(host.Host, r.URL.Path)); ok {
+				n, err := c.Write(v.([]byte))
+				if err != nil {
+					break
+				}
+				logs.Trace("%s request, method %s, host %s, url %s, remote address %s, return cache", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String())
+				host.Client.Flow.Add(int64(n), int64(n))
+				//if return cache and does not create a new conn with client and Connection is not set or close, close the connection.
+				if strings.ToLower(r.Header.Get("Connection")) == "close" || strings.ToLower(r.Header.Get("Connection")) == "" {
+					break
+				}
+				goto readReq
+			}
+		}
+
 		//change the host and header and set proxy setting
 		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
-		logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
+		logs.Trace("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
 		//write
 		lenConn = conn.NewLenConn(connClient)
+		//lenConn = conn.LenConn
 		if err := r.Write(lenConn); err != nil {
 			logs.Error(err)
 			break
 		}
+		host.Client.Flow.Add(int64(lenConn.Len), int64(lenConn.Len))
 
-		//readReq:
+	readReq:
 		//read req from connection
-		if r, err = http.ReadRequest(bufio.NewReader(c)); err != nil {
+		r, err = http.ReadRequest(bufio.NewReader(c))
+		if err != nil {
 			break
 		}
 		r.URL.Scheme = scheme
