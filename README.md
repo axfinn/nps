@@ -8,6 +8,9 @@
 
 此版本基于 nps 0.26.10的基础上二次开发而来。
 
+***DockerHub***： [NPS](https://hub.docker.com/r/yisier1/nps) [NPC](https://hub.docker.com/r/yisier1/npc)
+
+
 
 ## 更新日志
 
