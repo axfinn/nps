@@ -245,7 +245,8 @@ reset:
 		//read req from connection
 		r, err = http.ReadRequest(bufio.NewReader(c))
 		if err != nil {
-			break
+			//break
+			return
 		}
 		r.URL.Scheme = scheme
 		//What happened ，Why one character less???
