@@ -344,6 +344,9 @@ func (s *Sock5ModeServer) Auth(c net.Conn) error {
 	if s.task.MultiAccount != nil {
 		// enable multi user auth
 		U = string(user)
+		if len(U) == 0 {
+		        return errors.New("验证不通过")
+		}
 		var ok bool
 		P, ok = s.task.MultiAccount.AccountMap[U]
 		if !ok {
