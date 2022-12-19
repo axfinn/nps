@@ -1,7 +1,7 @@
 package client
 
 import (
-	"ehang.io/nps-mux"
+	"ehang.io/nps/lib/nps_mux"
 	"errors"
 	"net"
 	"net/http"

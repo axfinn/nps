@@ -125,6 +125,13 @@ func (s *BaseController) AjaxOk(str string) {
 	s.StopRun()
 }
 
+//ajax正确返回
+func (s *BaseController) AjaxOkWithId(str string, id int) {
+	s.Data["json"] = ajaxWithId(str, 1, id)
+	s.ServeJSON()
+	s.StopRun()
+}
+
 //ajax错误返回
 func (s *BaseController) AjaxErr(str string) {
 	s.Data["json"] = ajax(str, 0)
@@ -137,6 +144,15 @@ func ajax(str string, status int) map[string]interface{} {
 	json := make(map[string]interface{})
 	json["status"] = status
 	json["msg"] = str
+	return json
+}
+
+//组装ajax
+func ajaxWithId(str string, status int, id int) map[string]interface{} {
+	json := make(map[string]interface{})
+	json["status"] = status
+	json["msg"] = str
+	json["id"] = id
 	return json
 }
 

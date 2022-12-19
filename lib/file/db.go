@@ -181,7 +181,7 @@ func (s *DbUtils) GetHost(start, length int, id int, search string) ([]*Host, in
 	for _, key := range keys {
 		if value, ok := s.JsonDb.Hosts.Load(key); ok {
 			v := value.(*Host)
-			if search != "" && !(v.Id == common.GetIntNoErrByStr(search) || strings.Contains(v.Host, search) || strings.Contains(v.Remark, search)) {
+			if search != "" && !(v.Id == common.GetIntNoErrByStr(search) || strings.Contains(v.Host, search) || strings.Contains(v.Remark, search) || strings.Contains(v.Client.VerifyKey, search)) {
 				continue
 			}
 			if id == 0 || v.Client.Id == id {

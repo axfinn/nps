@@ -44,9 +44,10 @@ func (s *ClientController) Add() {
 		s.SetInfo("add client")
 		s.display()
 	} else {
+		id := int(file.GetDb().JsonDb.GetClientId())
 		t := &file.Client{
 			VerifyKey: s.getEscapeString("vkey"),
-			Id:        int(file.GetDb().JsonDb.GetClientId()),
+			Id:        id,
 			Status:    true,
 			Remark:    s.getEscapeString("remark"),
 			Cnf: &file.Config{
@@ -71,7 +72,7 @@ func (s *ClientController) Add() {
 		if err := file.GetDb().NewClient(t); err != nil {
 			s.AjaxErr(err.Error())
 		}
-		s.AjaxOk("add success")
+		s.AjaxOkWithId("add success", id)
 	}
 }
 func (s *ClientController) GetClient() {

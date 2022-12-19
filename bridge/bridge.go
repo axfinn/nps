@@ -1,7 +1,7 @@
 package bridge
 
 import (
-	"ehang.io/nps-mux"
+	"ehang.io/nps/lib/nps_mux"
 	"encoding/binary"
 	"errors"
 	"fmt"
