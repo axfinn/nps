@@ -32,6 +32,9 @@ func (s *BaseController) Prepare() {
 	md5Key := s.getEscapeString("auth_key")
 	timestamp := s.GetIntNoErr("timestamp")
 	configKey := beego.AppConfig.String("auth_key")
+	if configKey == "" {
+		configKey = crypt.GetRandomString(64)
+	}
 	timeNowUnix := time.Now().Unix()
 	if !(md5Key != "" && (math.Abs(float64(timeNowUnix-int64(timestamp))) <= 20) && (crypt.Md5(configKey+strconv.Itoa(timestamp)) == md5Key)) {
 		if s.GetSession("auth") != true {
