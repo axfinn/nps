@@ -6,13 +6,20 @@ import (
 	"runtime"
 )
 
+var ConfPath string
+
 //Get the currently selected configuration file directory
 //For non-Windows systems, select the /etc/nps as config directory if exist, or select ./
 //windows system, select the C:\Program Files\nps as config directory if exist, or select ./
 func GetRunPath() string {
 	var path string
-	if len(os.Args) <= 1 {
-		return "./"
+	if len(os.Args) == 1 {
+		if !IsWindows() {
+			dir, _ := filepath.Abs(filepath.Dir(os.Args[0])) //返回
+			return dir + "/"
+		} else {
+			return "./"
+		}
 	} else {
 		if path = GetInstallPath(); !FileExists(path) {
 			return GetAppPath()
@@ -24,6 +31,11 @@ func GetRunPath() string {
 //Different systems get different installation paths
 func GetInstallPath() string {
 	var path string
+
+	if ConfPath != "" {
+		return ConfPath
+	}
+
 	if IsWindows() {
 		path = `C:\Program Files\nps`
 	} else {

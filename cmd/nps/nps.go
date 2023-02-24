@@ -28,8 +28,9 @@ import (
 )
 
 var (
-	level string
-	ver   = flag.Bool("version", false, "show current version")
+	level    string
+	ver      = flag.Bool("version", false, "show current version")
+	confPath = flag.String("conf_path", "", "set current confPath")
 )
 
 func main() {
@@ -40,6 +41,18 @@ func main() {
 		common.PrintVersion()
 		return
 	}
+
+	// *confPath why get null value ?
+	for _, v := range os.Args[1:] {
+		switch v {
+		case "install", "start", "stop", "uninstall", "restart":
+			continue
+		}
+		if strings.Contains(v, "-conf_path=") {
+			common.ConfPath = strings.Replace(v, "-conf_path=", "", -1)
+		}
+	}
+
 	if err := beego.LoadAppConfig("ini", filepath.Join(common.GetRunPath(), "conf", "nps.conf")); err != nil {
 		log.Fatalln("load config file error", err.Error())
 	}
@@ -66,6 +79,15 @@ func main() {
 		Description: "一款轻量级、功能强大的内网穿透代理服务器。支持tcp、udp流量转发，支持内网http代理、内网socks5代理，同时支持snappy压缩、站点保护、加密传输、多路复用、header修改等。支持web图形化管理，集成多用户模式。",
 		Option:      options,
 	}
+
+	for _, v := range os.Args[1:] {
+		switch v {
+		case "install", "start", "stop", "uninstall", "restart":
+			continue
+		}
+		svcConfig.Arguments = append(svcConfig.Arguments, v)
+	}
+
 	svcConfig.Arguments = append(svcConfig.Arguments, "service")
 	if len(os.Args) > 1 && os.Args[1] == "service" {
 		_ = logs.SetLogger(logs.AdapterFile, `{"level":`+level+`,"filename":"`+logPath+`","daily":false,"maxlines":100000,"color":true}`)
@@ -149,9 +171,9 @@ func main() {
 		case "update":
 			install.UpdateNps()
 			return
-		default:
-			logs.Error("command is not support")
-			return
+			//default:
+			//	logs.Error("command is not support")
+			//	return
 		}
 	}
 
@@ -203,6 +225,8 @@ func run() {
 		logs.Error("Getting bridge_port error", err)
 		os.Exit(0)
 	}
+
+	logs.Info("the config path is:" + common.GetRunPath())
 	logs.Info("the version of server is %s ,allow client core version to be %s", version.VERSION, version.GetVersion())
 	connection.InitConnectionService()
 	//crypt.InitTls(filepath.Join(common.GetRunPath(), "conf", "server.pem"), filepath.Join(common.GetRunPath(), "conf", "server.key"))
