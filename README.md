@@ -15,16 +15,18 @@
 ## 更新日志
 
 - 2023-02-24  v0.26.15  
+  ***修复***：更新程序 url 更改到当前仓库中   
   ***修复***：nps 在外部路径启动时找不到配置文件  
   ***新增***：增加 nps 启动参数，`-conf_path=D:\test\nps`,可用于加载指定nps配置文件和web文件目录。  
-  window 使用示例：
-- 启动：`nps.exe -conf_path=D:\test\nps`
-- 安装：`nps.exe install -conf_path=D:\test\nps`  
- - 安装启动：`nps start`  
-  linux 使用示例：
-- 直接启动：`./nps -conf_path=/app/nps`
-- 安装：`./nps install -conf_path=/app/nps`
-- 安装启动：`nps start -conf_path=/app/nps`
+  ***window 使用示例：***  
+  启动：`nps.exe -conf_path=D:\test\nps`  
+  安装：`nps.exe install -conf_path=D:\test\nps`    
+  安装启动：`nps start`      
+
+  ***linux 使用示例：***    
+  直接启动：`./nps -conf_path=/app/nps`  
+  安装：`./nps install -conf_path=/app/nps`  
+  安装启动：`nps start -conf_path=/app/nps`  
 
 
 
