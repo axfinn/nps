@@ -19,9 +19,9 @@
   ***修复***：nps 在外部路径启动时找不到配置文件  
   ***新增***：增加 nps 启动参数，`-conf_path=D:\test\nps`,可用于加载指定nps配置文件和web文件目录。  
   ***window 使用示例：***  
-  启动：`nps.exe -conf_path=D:\test\nps`  
+  直接启动：`nps.exe -conf_path=D:\test\nps`  
   安装：`nps.exe install -conf_path=D:\test\nps`    
-  安装启动：`nps start`      
+  安装启动：`nps.exe start`      
 
   ***linux 使用示例：***    
   直接启动：`./nps -conf_path=/app/nps`  
