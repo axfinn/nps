@@ -20,6 +20,7 @@ func NewJsonDb(runPath string) *JsonDb {
 		TaskFilePath:   filepath.Join(runPath, "conf", "tasks.json"),
 		HostFilePath:   filepath.Join(runPath, "conf", "hosts.json"),
 		ClientFilePath: filepath.Join(runPath, "conf", "clients.json"),
+		GlobalFilePath: filepath.Join(runPath, "conf", "global.json"),
 	}
 }
 
@@ -28,6 +29,7 @@ type JsonDb struct {
 	Hosts            sync.Map
 	HostsTmp         sync.Map
 	Clients          sync.Map
+	Global           sync.Map
 	RunPath          string
 	ClientIncreaseId int32  //client increased id
 	TaskIncreaseId   int32  //task increased id
@@ -35,6 +37,7 @@ type JsonDb struct {
 	TaskFilePath     string //task file path
 	HostFilePath     string //host file path
 	ClientFilePath   string //client file path
+	GlobalFilePath   string //global file path
 }
 
 func (s *JsonDb) LoadTaskFromJsonFile() {
@@ -91,6 +94,16 @@ func (s *JsonDb) LoadHostFromJsonFile() {
 	})
 }
 
+func (s *JsonDb) LoadGlobalFromJsonFile() {
+	loadSyncMapFromFile(s.GlobalFilePath, func(v string) {
+		post := new(Glob)
+		if json.Unmarshal([]byte(v), &post) != nil {
+			return
+		}
+		s.Global.Store("value", post)
+	})
+}
+
 func (s *JsonDb) GetClient(id int) (c *Client, err error) {
 	if v, ok := s.Clients.Load(id); ok {
 		c = v.(*Client)
@@ -122,6 +135,14 @@ func (s *JsonDb) StoreClientsToJsonFile() {
 	clientLock.Lock()
 	storeSyncMapToFile(s.Clients, s.ClientFilePath)
 	clientLock.Unlock()
+}
+
+var globalLock sync.Mutex
+
+func (s *JsonDb) StoreGlobalToJsonFile() {
+	globalLock.Lock()
+	storeSyncMapToFile(s.Global, s.GlobalFilePath)
+	globalLock.Unlock()
 }
 
 func (s *JsonDb) GetClientId() int32 {
@@ -173,6 +194,9 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 			if obj.NoStore {
 				return true
 			}
+			b, err = json.Marshal(obj)
+		case *Glob:
+			obj := value.(*Glob)
 			b, err = json.Marshal(obj)
 		default:
 			return true

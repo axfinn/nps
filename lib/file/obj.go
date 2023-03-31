@@ -210,3 +210,8 @@ func (s *Target) GetRandomTarget() (string, error) {
 	s.nowIndex++
 	return s.TargetArr[s.nowIndex], nil
 }
+
+type Glob struct {
+	BlackIpList []string
+	sync.RWMutex
+}
