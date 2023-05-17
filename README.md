@@ -1,5 +1,3 @@
-# 最近ChatGPT 和 Midjourney 很火啊，给大家推荐一个可以免费体验这俩的网址，http://easyai.fit gpt3.5 免费的 不需要注册,支持上下文对话,还支持 Midjourney
-
 # NPS
 
 [README](https://github.com/ehang-io/nps/blob/master/README.md)|[中文文档](https://github.com/ehang-io/nps/blob/master/README_zh.md)
