@@ -54,6 +54,9 @@
                     <a href="{{.web_base_url}}/"><i class="fa fa-tachometer-alt fa-lg"></i>
                     <span class="nav-label" langtag="word-dashboard"></span></a>
                 </li>
+
+
+
                 <li class="{{if eq "client" .menu}}active{{end}}">
                     <a href="{{.web_base_url}}/client/list"><i class="fa fa-desktop fa-lg"></i>
                     <span class="nav-label" langtag="word-client"></span></a>
@@ -90,6 +93,12 @@
                     <a href="{{.web_base_url}}/index/file"><i class="fa fa-briefcase fa-lg"></i>
                     <span class="nav-label" langtag="scheme-file"></span></a>
                 </li>
+
+                <li class="{{if eq "global" .menu}}active{{end}}">
+                <a href="{{.web_base_url}}/global/index"><i class="fa fa-cog fa-lg"></i>
+                    <span class="nav-label" langtag="word-globalparam"></span></a>
+                </li>
+
                 <li class="{{if eq "help" .menu}}active{{end}}">
                     <a href="https://ehang.io/nps/documents" target="_blank"><i class="fa fa-lightbulb fa-lg"></i>
                     <span class="nav-label" langtag="word-help"></span></a>

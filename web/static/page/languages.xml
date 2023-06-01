@@ -237,6 +237,10 @@
 		<zh-CN>仪表盘</zh-CN>
 		<en-US>Dashboard</en-US>
 	</lang>
+	<lang id="word-globalparam">
+		<zh-CN>全局参数</zh-CN>
+		<en-US>Global Params</en-US>
+	</lang>
 	<lang id="word-exportflow">
 		<zh-CN>出口流量</zh-CN>
 		<en-US>Export Flow</en-US>
@@ -707,6 +711,12 @@
 		<en-US>IP Black List</en-US>
 	</lang>
 
+
+	<lang id="word-globalblackiplist">
+		<zh-CN>全局IP黑名单（防暴力破解）</zh-CN>
+		<en-US>Global IP Black List</en-US>
+	</lang>
+
 	<lang id="info-suchasblackiplist">
 		<zh-CN>例如&#10;10.1.50.203&#10;10.1.50.202</zh-CN>
 		<en-US>such as&#10;10.1.50.203&#10;10.1.50.202</en-US>
@@ -723,6 +733,10 @@
 		<en-US>IP Black List</en-US>
 	</lang>
 
+	<lang id="word-lastonlinetime">
+		<zh-CN>上次在线时间</zh-CN>
+		<en-US>Last Online Time</en-US>
+	</lang>
 
 	<confirm>
 		<lang id="delete">

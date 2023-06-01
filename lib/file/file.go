@@ -29,7 +29,7 @@ type JsonDb struct {
 	Hosts            sync.Map
 	HostsTmp         sync.Map
 	Clients          sync.Map
-	Global           sync.Map
+	Global           *Glob
 	RunPath          string
 	ClientIncreaseId int32  //client increased id
 	TaskIncreaseId   int32  //task increased id
@@ -95,12 +95,12 @@ func (s *JsonDb) LoadHostFromJsonFile() {
 }
 
 func (s *JsonDb) LoadGlobalFromJsonFile() {
-	loadSyncMapFromFile(s.GlobalFilePath, func(v string) {
+	loadSyncMapFromFileWithSingleJson(s.GlobalFilePath, func(v string) {
 		post := new(Glob)
 		if json.Unmarshal([]byte(v), &post) != nil {
 			return
 		}
-		s.Global.Store("value", post)
+		s.Global = post
 	})
 }
 
@@ -141,7 +141,7 @@ var globalLock sync.Mutex
 
 func (s *JsonDb) StoreGlobalToJsonFile() {
 	globalLock.Lock()
-	storeSyncMapToFile(s.Global, s.GlobalFilePath)
+	storeGlobalToFile(s.Global, s.GlobalFilePath)
 	globalLock.Unlock()
 }
 
@@ -165,6 +165,19 @@ func loadSyncMapFromFile(filePath string, f func(value string)) {
 	for _, v := range strings.Split(string(b), "\n"+common.CONN_DATA_SEQ) {
 		f(v)
 	}
+}
+
+func loadSyncMapFromFileWithSingleJson(filePath string, f func(value string)) {
+	if !common.FileExists(filePath) {
+		return
+	}
+
+	b, err := common.ReadAllFromFile(filePath)
+	if err != nil {
+		panic(err)
+	}
+
+	f(string(b))
 }
 
 func storeSyncMapToFile(m sync.Map, filePath string) {
@@ -195,9 +208,9 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 				return true
 			}
 			b, err = json.Marshal(obj)
-		case *Glob:
-			obj := value.(*Glob)
-			b, err = json.Marshal(obj)
+		//case *Glob:
+		//	obj := value.(*Glob)
+		//	b, err = json.Marshal(obj)
 		default:
 			return true
 		}
@@ -222,4 +235,26 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 		logs.Error(err, "store to file err, data will lost")
 	}
 	// replace the file, maybe provides atomic operation
+}
+
+func storeGlobalToFile(m *Glob, filePath string) {
+	file, err := os.Create(filePath + ".tmp")
+	// first create a temporary file to store
+	if err != nil {
+		panic(err)
+	}
+
+	var b []byte
+	b, err = json.Marshal(m)
+	_, err = file.Write(b)
+	if err != nil {
+		panic(err)
+	}
+	_ = file.Sync()
+	_ = file.Close()
+	// must close file first, then rename it
+	err = os.Rename(filePath+".tmp", filePath)
+	if err != nil {
+		logs.Error(err, "store to file err, data will lost")
+	}
 }

@@ -52,6 +52,7 @@ type Client struct {
 	MaxTunnelNum    int
 	Version         string
 	BlackIpList     []string
+	LastOnlineTime  string
 	sync.RWMutex
 }
 

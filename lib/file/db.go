@@ -29,6 +29,7 @@ func GetDb() *DbUtils {
 		jsonDb.LoadClientFromJsonFile()
 		jsonDb.LoadTaskFromJsonFile()
 		jsonDb.LoadHostFromJsonFile()
+		jsonDb.LoadGlobalFromJsonFile()
 		Db = &DbUtils{JsonDb: jsonDb}
 	})
 	return Db
@@ -112,6 +113,12 @@ func (s *DbUtils) NewTask(t *Tunnel) (err error) {
 func (s *DbUtils) UpdateTask(t *Tunnel) error {
 	s.JsonDb.Tasks.Store(t.Id, t)
 	s.JsonDb.StoreTasksToJsonFile()
+	return nil
+}
+
+func (s *DbUtils) SaveGlobal(t *Glob) error {
+	s.JsonDb.Global = t
+	s.JsonDb.StoreGlobalToJsonFile()
 	return nil
 }
 
@@ -286,6 +293,10 @@ func (s *DbUtils) GetClient(id int) (c *Client, err error) {
 	}
 	err = errors.New("未找到客户端")
 	return
+}
+
+func (s *DbUtils) GetGlobal() (c *Glob) {
+	return s.JsonDb.Global
 }
 
 func (s *DbUtils) GetClientIdByVkey(vkey string) (id int, err error) {
