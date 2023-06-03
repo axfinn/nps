@@ -9,8 +9,6 @@
 
 ***DockerHub***： [NPS](https://hub.docker.com/r/yisier1/nps) [NPC](https://hub.docker.com/r/yisier1/npc)
 
-如果大家对这个项目感兴趣，欢迎加入交流群🎉  
-QQ群：728971903
 
 ## 更新日志
 
