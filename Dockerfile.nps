@@ -1,5 +1,5 @@
 FROM golang:1.15 as builder
-ENV GOPROXY=https://goproxy.cn,direct
+ARG GOPROXY=direct
 WORKDIR /go/src/ehang.io/nps
 COPY . .
 RUN go get -d -v ./...
