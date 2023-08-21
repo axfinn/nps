@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"sync"
 
 	"ehang.io/nps/lib/cache"
@@ -34,6 +35,10 @@ func NewHttpsServer(l net.Listener, bridge NetBridge, useCache bool, cacheLen in
 
 //start https server
 func (https *HttpsServer) Start() error {
+	var err error
+	if https.errorContent, err = common.ReadAllFromFile(filepath.Join(common.GetRunPath(), "web", "static", "page", "error.html")); err != nil {
+		https.errorContent = []byte("nps 404")
+	}
 	if b, err := beego.AppConfig.Bool("https_just_proxy"); err == nil && b {
 		conn.Accept(https.listener, func(c net.Conn) {
 			https.handleHttps(c)
@@ -125,7 +130,7 @@ func (https *HttpsServer) handleHttps(c net.Conn) {
 		logs.Warn(err.Error())
 	}
 	logs.Trace("new https connection,clientId %d,host %s,remote address %s", host.Client.Id, r.Host, c.RemoteAddr().String())
-	https.DealClient(conn.NewConn(c), host.Client, targetAddr, rb, common.CONN_TCP, nil, host.Flow, host.Target.LocalProxy)
+	https.DealClient(conn.NewConn(c), host.Client, targetAddr, rb, common.CONN_TCP, nil, host.Client.Flow, host.Target.LocalProxy, nil)
 }
 
 type HttpsListener struct {

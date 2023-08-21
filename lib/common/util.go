@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/astaxie/beego/logs"
 	"html/template"
 	"io"
 	"io/ioutil"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -273,6 +275,26 @@ func GetPortByAddr(addr string) int {
 		return 0
 	}
 	return p
+}
+
+func in(target string, str_array []string) bool {
+	sort.Strings(str_array)
+	index := sort.SearchStrings(str_array, target)
+	if index < len(str_array) && str_array[index] == target {
+		return true
+	}
+	return false
+}
+
+// 判断访问地址是否在黑名单内
+func IsBlackIp(ipPort, vkey string, blackIpList []string) bool {
+	ip := GetIpByAddr(ipPort)
+	if in(ip, blackIpList) {
+		logs.Error("IP地址[" + ip + "]在隧道[" + vkey + "]黑名单列表内")
+		return true
+	}
+
+	return false
 }
 
 func CopyBuffer(dst io.Writer, src io.Reader, label ...string) (written int64, err error) {

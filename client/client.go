@@ -3,7 +3,7 @@ package client
 import (
 	"bufio"
 	"bytes"
-	"ehang.io/nps-mux"
+	"ehang.io/nps/lib/nps_mux"
 	"net"
 	"net/http"
 	"strconv"
@@ -219,7 +219,7 @@ func (s *TRPClient) handleChan(src net.Conn) {
 		src.Close()
 	} else {
 		logs.Trace("new %s connection with the goal of %s, remote address:%s", lk.ConnType, lk.Host, lk.RemoteAddr)
-		conn.CopyWaitGroup(src, targetConn, lk.Crypt, lk.Compress, nil, nil, false, nil)
+		conn.CopyWaitGroup(src, targetConn, lk.Crypt, lk.Compress, nil, nil, false, nil, nil)
 	}
 }
 

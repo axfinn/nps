@@ -3,23 +3,22 @@ package proxy
 import (
 	"bufio"
 	"crypto/tls"
-	"io"
-	"net"
-	"net/http"
-	"net/http/httputil"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"sync"
-
 	"ehang.io/nps/bridge"
 	"ehang.io/nps/lib/cache"
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/conn"
 	"ehang.io/nps/lib/file"
+	"ehang.io/nps/lib/goroutine"
 	"ehang.io/nps/server/connection"
 	"github.com/astaxie/beego/logs"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
 )
 
 type httpServer struct {
@@ -102,16 +101,24 @@ func (s *httpServer) Close() error {
 }
 
 func (s *httpServer) handleTunneling(w http.ResponseWriter, r *http.Request) {
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
-		return
+
+	if r.Header.Get("Upgrade") != "" {
+		rProxy := NewHttpReverseProxy(s)
+		rProxy.ServeHTTP(w, r)
+	} else {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
+			return
+		}
+		c, _, err := hijacker.Hijack()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		}
+
+		s.handleHttp(conn.NewConn(c), r)
 	}
-	c, _, err := hijacker.Hijack()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-	}
-	s.handleHttp(conn.NewConn(c), r)
+
 }
 
 func (s *httpServer) handleHttp(c *conn.Conn, r *http.Request) {
@@ -159,6 +166,19 @@ reset:
 		logs.Warn(err.Error())
 		return
 	}
+
+	// 判断访问地址是否在全局黑名单内
+	if IsGlobalBlackIp(c.RemoteAddr().String()) {
+		c.Close()
+		return
+	}
+
+	// 判断访问地址是否在黑名单内
+	if common.IsBlackIp(c.RemoteAddr().String(), host.Client.VerifyKey, host.Client.BlackIpList) {
+		c.Close()
+		return
+	}
+
 	lk = conn.NewLink("http", targetAddr, host.Client.Cnf.Crypt, host.Client.Cnf.Compress, r.RemoteAddr, host.Target.LocalProxy)
 	if target, err = s.bridge.SendLinkInfo(host.Client.Id, lk, nil); err != nil {
 		logs.Notice("connect to target %s error %s", lk.Host, err)
@@ -177,28 +197,23 @@ reset:
 				c.Close()
 			}
 		}()
-		for {
-			if resp, err := http.ReadResponse(bufio.NewReader(connClient), r); err != nil || resp == nil || r == nil {
-				// if there got broken pipe, http.ReadResponse will get a nil
+
+		err1 := goroutine.CopyBuffer(c, connClient, host.Client.Flow, nil, "")
+		if err1 != nil {
+			return
+		}
+
+		resp, err := http.ReadResponse(bufio.NewReader(connClient), r)
+		if err != nil || resp == nil || r == nil {
+			// if there got broken pipe, http.ReadResponse will get a nil
+			//break
+			return
+		} else {
+			lenConn := conn.NewLenConn(c)
+			if err := resp.Write(lenConn); err != nil {
+				logs.Error(err)
+				//break
 				return
-			} else {
-				//if the cache is start and the response is in the extension,store the response to the cache list
-				if s.useCache && r.URL != nil && strings.Contains(r.URL.Path, ".") {
-					b, err := httputil.DumpResponse(resp, true)
-					if err != nil {
-						return
-					}
-					c.Write(b)
-					host.Flow.Add(0, int64(len(b)))
-					s.cache.Add(filepath.Join(host.Host, r.URL.Path), b)
-				} else {
-					lenConn := conn.NewLenConn(c)
-					if err := resp.Write(lenConn); err != nil {
-						logs.Error(err)
-						return
-					}
-					host.Flow.Add(0, int64(lenConn.Len))
-				}
 			}
 		}
 	}()
@@ -212,7 +227,7 @@ reset:
 					break
 				}
 				logs.Trace("%s request, method %s, host %s, url %s, remote address %s, return cache", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String())
-				host.Flow.Add(0, int64(n))
+				host.Client.Flow.Add(int64(n), int64(n))
 				//if return cache and does not create a new conn with client and Connection is not set or close, close the connection.
 				if strings.ToLower(r.Header.Get("Connection")) == "close" || strings.ToLower(r.Header.Get("Connection")) == "" {
 					break
@@ -223,23 +238,28 @@ reset:
 
 		//change the host and header and set proxy setting
 		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
+
 		remoteAddr = strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
 		if len(remoteAddr) == 0 {
 			remoteAddr = c.RemoteAddr().String()
 		}
-		logs.Trace("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, remoteAddr, lk.Host)
+		logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, remoteAddr, lk.Host)
+
 		//write
 		lenConn = conn.NewLenConn(connClient)
+		//lenConn = conn.LenConn
 		if err := r.Write(lenConn); err != nil {
 			logs.Error(err)
 			break
 		}
-		host.Flow.Add(int64(lenConn.Len), 0)
+		host.Client.Flow.Add(int64(lenConn.Len), int64(lenConn.Len))
 
 	readReq:
 		//read req from connection
-		if r, err = http.ReadRequest(bufio.NewReader(c)); err != nil {
-			break
+		r, err = http.ReadRequest(bufio.NewReader(c))
+		if err != nil {
+			//break
+			return
 		}
 		r.URL.Scheme = scheme
 		//What happened ，Why one character less???

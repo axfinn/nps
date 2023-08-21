@@ -92,12 +92,13 @@ func (s *IndexController) Add() {
 		s.SetInfo("add tunnel")
 		s.display()
 	} else {
+		id := int(file.GetDb().JsonDb.GetTaskId())
 		t := &file.Tunnel{
 			Port:      s.GetIntNoErr("port"),
 			ServerIp:  s.getEscapeString("server_ip"),
 			Mode:      s.getEscapeString("type"),
 			Target:    &file.Target{TargetStr: s.getEscapeString("target"), LocalProxy: s.GetBoolNoErr("local_proxy")},
-			Id:        int(file.GetDb().JsonDb.GetTaskId()),
+			Id:        id,
 			Status:    true,
 			Remark:    s.getEscapeString("remark"),
 			Password:  s.getEscapeString("password"),
@@ -105,6 +106,11 @@ func (s *IndexController) Add() {
 			StripPre:  s.getEscapeString("strip_pre"),
 			Flow:      &file.Flow{},
 		}
+
+		if t.Port <= 0 {
+			t.Port = tool.GenerateServerPort(t.Mode)
+		}
+
 		if !tool.TestServerPort(t.Port, t.Mode) {
 			s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
 		}
@@ -121,7 +127,7 @@ func (s *IndexController) Add() {
 		if err := server.AddTask(t); err != nil {
 			s.AjaxErr(err.Error())
 		} else {
-			s.AjaxOk("add success")
+			s.AjaxOkWithId("add success", id)
 		}
 	}
 }
@@ -158,11 +164,16 @@ func (s *IndexController) Edit() {
 				t.Client = client
 			}
 			if s.GetIntNoErr("port") != t.Port {
+				t.Port = s.GetIntNoErr("port")
+
+				if t.Port <= 0 {
+					t.Port = tool.GenerateServerPort(t.Mode)
+				}
+
 				if !tool.TestServerPort(s.GetIntNoErr("port"), t.Mode) {
 					s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
 					return
 				}
-				t.Port = s.GetIntNoErr("port")
 			}
 			t.ServerIp = s.getEscapeString("server_ip")
 			t.Mode = s.getEscapeString("type")
@@ -248,8 +259,9 @@ func (s *IndexController) AddHost() {
 		s.SetInfo("add host")
 		s.display("index/hadd")
 	} else {
+		id := int(file.GetDb().JsonDb.GetHostId())
 		h := &file.Host{
-			Id:           int(file.GetDb().JsonDb.GetHostId()),
+			Id:           id,
 			Host:         s.getEscapeString("host"),
 			Target:       &file.Target{TargetStr: s.getEscapeString("target"), LocalProxy: s.GetBoolNoErr("local_proxy")},
 			HeaderChange: s.getEscapeString("header"),
@@ -268,7 +280,7 @@ func (s *IndexController) AddHost() {
 		if err := file.GetDb().NewHost(h); err != nil {
 			s.AjaxErr("add fail" + err.Error())
 		}
-		s.AjaxOk("add success")
+		s.AjaxOkWithId("add success", id)
 	}
 }
 

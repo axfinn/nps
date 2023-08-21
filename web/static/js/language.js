@@ -161,6 +161,19 @@ function submitform(action, url, postdata) {
                     }
                 }
             });
+			return;
+		case 'global':
+			$.ajax({
+				type: "POST",
+				url: url,
+				data: postdata,
+				success: function (res) {
+					alert(langreply(res.msg));
+					if (res.status) {
+						document.location.reload();
+					}
+				}
+			});
     }
 }
 

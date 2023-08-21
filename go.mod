@@ -3,7 +3,6 @@ module ehang.io/nps
 go 1.15
 
 require (
-	ehang.io/nps-mux v0.0.0-20210407130203-4afa0c10c992
 	fyne.io/fyne/v2 v2.0.2
 	github.com/astaxie/beego v1.12.0
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
