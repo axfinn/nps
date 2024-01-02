@@ -9,9 +9,21 @@
 
 ***DockerHub***： [NPS](https://hub.docker.com/r/yisier1/nps) [NPC](https://hub.docker.com/r/yisier1/npc)
 
+# 交流群
+聊天灌水QQ群：619833483
+
+# 捐赠
+![image](image/new/payCode.png)
+
+
 
 ## 更新日志
+- 2024-01-02  v0.27.01  
+  ***新增***：tls 流量加密，(客户端忽略证书校验，谨慎使用，客户端与服务端需要同时开启，或同时关闭)，使用方式：   
+             服务端：nps.conf `tls_enable=true`;    
+             客户端：npc.conf `tls_enable=true` 或者 `npc.exe  -server=xxx -vkey=xxx -tls_enable=true`  
 
+  
 - 2023-06-01  v0.26.16  
   ***修复***：https 流量不统计 Bug 修复。  
   ***新增***：新增全局黑名单IP，用于防止被肉鸡扫描端口或被恶意攻击。  

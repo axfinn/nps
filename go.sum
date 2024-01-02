@@ -1,6 +1,4 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-ehang.io/nps-mux v0.0.0-20210407130203-4afa0c10c992 h1:LvlcB+8JveSBprHnva0g+OyLwAH8CRxEwtWzTe6ocoE=
-ehang.io/nps-mux v0.0.0-20210407130203-4afa0c10c992/go.mod h1:v54y/8ICChiM/aVUuKxGIcWwjm4HGNRyyAwbgLBoMbI=
 fyne.io/fyne/v2 v2.0.2 h1:6pDvFuCmL1odyT/fPI+2L54hMJW1Zt9Dno41HmLInRs=
 fyne.io/fyne/v2 v2.0.2/go.mod h1:3+FYmLJVgeb8EvTPJ5YzZeo7LkAq4bbuY3Zrir6xHbg=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=

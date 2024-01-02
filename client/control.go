@@ -2,6 +2,7 @@ package client
 
 import (
 	"bufio"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
@@ -28,6 +29,16 @@ import (
 	"github.com/xtaci/kcp-go"
 	"golang.org/x/net/proxy"
 )
+
+var tlsEnable1 = false
+
+func SetTlsEnable(tlsEnable11 bool) {
+	tlsEnable1 = tlsEnable11
+}
+
+func GetTlsEnable() bool {
+	return tlsEnable1
+}
 
 func GetTaskStatus(path string) {
 	cnf, err := config.NewConfig(path)
@@ -96,6 +107,7 @@ func StartFromFile(path string) {
 	}
 	logs.Info("Loading configuration file %s successfully", path)
 
+	SetTlsEnable(cnf.CommonConfig.TlsEnable)
 re:
 	if first || cnf.CommonConfig.AutoReconnection {
 		if !first {
@@ -202,7 +214,15 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 				connection, err = NewHttpProxyConn(u, server)
 			}
 		} else {
-			connection, err = net.Dial("tcp", server)
+			if GetTlsEnable() {
+				//tls 流量加密
+				conf := &tls.Config{
+					InsecureSkipVerify: true,
+				}
+				connection, err = tls.Dial("tcp", server, conf)
+			} else {
+				connection, err = net.Dial("tcp", server)
+			}
 		}
 	} else {
 		sess, err = kcp.DialWithOptions(server, nil, 10, 3)

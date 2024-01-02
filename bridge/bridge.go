@@ -1,6 +1,8 @@
 package bridge
 
 import (
+	"crypto/tls"
+	_ "crypto/tls"
 	"ehang.io/nps/lib/nps_mux"
 	"encoding/binary"
 	"errors"
@@ -22,6 +24,8 @@ import (
 	"github.com/astaxie/beego"
 	"github.com/astaxie/beego/logs"
 )
+
+var ServerTlsEnable bool = false
 
 type Client struct {
 	tunnel    *nps_mux.Mux
@@ -82,8 +86,14 @@ func (s *Bridge) StartTunnel() error {
 			os.Exit(0)
 			return err
 		}
+
 		conn.Accept(listener, func(c net.Conn) {
-			s.cliProcess(conn.NewConn(c))
+			// tls
+			if ServerTlsEnable {
+				s.cliProcess(conn.NewConn(tls.Server(c, &tls.Config{Certificates: []tls.Certificate{crypt.GetCert()}})))
+			} else {
+				s.cliProcess(conn.NewConn(c))
+			}
 		})
 	}
 	return nil
