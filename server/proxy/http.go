@@ -133,6 +133,7 @@ func (s *httpServer) handleHttp(c *conn.Conn, r *http.Request) {
 		lenConn    *conn.LenConn
 		isReset    bool
 		wg         sync.WaitGroup
+		remoteAddr string
 	)
 	defer func() {
 		if connClient != nil {
@@ -237,7 +238,13 @@ reset:
 
 		//change the host and header and set proxy setting
 		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
-		logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, c.RemoteAddr().String(), lk.Host)
+
+		remoteAddr = strings.TrimSpace(r.Header.Get("X-Forwarded-For"))
+		if len(remoteAddr) == 0 {
+			remoteAddr = c.RemoteAddr().String()
+		}
+		logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, remoteAddr, lk.Host)
+
 		//write
 		lenConn = conn.NewLenConn(connClient)
 		//lenConn = conn.LenConn
