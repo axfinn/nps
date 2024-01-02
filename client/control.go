@@ -108,6 +108,7 @@ func StartFromFile(path string) {
 	logs.Info("Loading configuration file %s successfully", path)
 
 	SetTlsEnable(cnf.CommonConfig.TlsEnable)
+	logs.Info("the version of client is %s, the core version of client is %s,tls enable is %t", version.VERSION, version.GetVersion(), GetTlsEnable())
 re:
 	if first || cnf.CommonConfig.AutoReconnection {
 		if !first {
