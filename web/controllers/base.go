@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"ehang.io/nps/bridge"
 	"html"
 	"math"
 	"strconv"
@@ -83,7 +84,17 @@ func (s *BaseController) display(tpl ...string) {
 	if common.IsWindows() {
 		s.Data["win"] = ".exe"
 	}
-	s.Data["p"] = server.Bridge.TunnelPort
+
+	s.Data["p"] = strconv.Itoa(server.Bridge.TunnelPort)
+
+	if bridge.ServerTlsEnable {
+		tlsPort := strconv.Itoa(beego.AppConfig.DefaultInt("tls_bridge_port", 8025))
+		s.Data["tls_p"] = tlsPort
+		s.Data["p1"] = strconv.Itoa(server.Bridge.TunnelPort) + " / " + tlsPort
+	} else {
+		s.Data["p1"] = strconv.Itoa(server.Bridge.TunnelPort)
+	}
+
 	s.Data["proxyPort"] = beego.AppConfig.String("hostPort")
 	s.Layout = "public/layout.html"
 	s.TplName = tplname

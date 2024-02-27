@@ -80,21 +80,37 @@ func (s *Bridge) StartTunnel() error {
 			s.cliProcess(conn.NewConn(c))
 		})
 	} else {
-		listener, err := connection.GetBridgeListener(s.tunnelType)
-		if err != nil {
-			logs.Error(err)
-			os.Exit(0)
-			return err
-		}
 
-		conn.Accept(listener, func(c net.Conn) {
-			// tls
-			if ServerTlsEnable {
-				s.cliProcess(conn.NewConn(tls.Server(c, &tls.Config{Certificates: []tls.Certificate{crypt.GetCert()}})))
-			} else {
-				s.cliProcess(conn.NewConn(c))
+		go func() {
+			listener, err := connection.GetBridgeListener(s.tunnelType)
+			if err != nil {
+				logs.Error(err)
+				os.Exit(0)
+				return
 			}
-		})
+			conn.Accept(listener, func(c net.Conn) {
+				s.cliProcess(conn.NewConn(c))
+			})
+		}()
+
+		// tls
+		if ServerTlsEnable {
+			go func() {
+				// 监听TLS 端口
+				tlsBridgePort := beego.AppConfig.DefaultInt("tls_bridge_port", 8025)
+
+				logs.Info("tls server start, the bridge type is %s, the tls bridge port is %d", "tcp", tlsBridgePort)
+				tlsListener, tlsErr := net.ListenTCP("tcp", &net.TCPAddr{net.ParseIP(beego.AppConfig.String("bridge_ip")), tlsBridgePort, ""})
+				if tlsErr != nil {
+					logs.Error(tlsErr)
+					os.Exit(0)
+					return
+				}
+				conn.Accept(tlsListener, func(c net.Conn) {
+					s.cliProcess(conn.NewConn(tls.Server(c, &tls.Config{Certificates: []tls.Certificate{crypt.GetCert()}})))
+				})
+			}()
+		}
 	}
 	return nil
 }
