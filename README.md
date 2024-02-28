@@ -20,7 +20,7 @@
 ## 更新日志
 
 
-- 2024-02-28  v0.26.18  
+- 2024-02-27  v0.26.18  
   ***新增***：nps.conf 新增 `tls_bridge_port=8025` 参数，当 `tls_enable=true` 时，nps 会监听8025端口，作为 tls 的连接端口。  
              客户端可以选择连接 tls 端口或者非 tls 端口： `npc.exe  -server=xxx:8024 -vkey=xxx` 或 `npc.exe  -server=xxx:8025 -vkey=xxx -tls_enable=true`
   
