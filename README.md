@@ -3,7 +3,7 @@
 [README](https://github.com/ehang-io/nps/blob/master/README.md)|[中文文档](https://github.com/ehang-io/nps/blob/master/README_zh.md)
 
 # 说明
-由于nps已经有一年多的时间没有更新了，存留了不少bug和未完善的功能。
+由于nps已经有二年多的时间没有更新了，存留了不少bug和未完善的功能。
 
 此版本基于 nps 0.26.10的基础上二次开发而来。
 
@@ -12,14 +12,16 @@
 # 交流群
 聊天灌水QQ群：619833483
 
+# 特价云服务器  
+国内BGP，游戏开服，2核 2G 15M上行 25元/月，[专属连接，首页5折](https://www.rainyun.com/MjY0MzY1_)
+
+  
 # 捐赠
 ![image](image/new/payCode.png)
 
 
 
-## 更新日志
-
-
+## 更新日志  
 - 2024-02-27  v0.26.18  
   ***新增***：nps.conf 新增 `tls_bridge_port=8025` 参数，当 `tls_enable=true` 时，nps 会监听8025端口，作为 tls 的连接端口。  
              客户端可以选择连接 tls 端口或者非 tls 端口： `npc.exe  -server=xxx:8024 -vkey=xxx` 或 `npc.exe  -server=xxx:8025 -vkey=xxx -tls_enable=true`
@@ -29,7 +31,7 @@
   ***说明***：考虑到 npc 历史版本客户端众多，版本号不同旧版本客户端无法连接，为了兼容，仓库版本号将继续沿用 0.26.xx
 
 
-- 2024-01-02  v0.27.01  
+- 2024-01-02  v0.27.01  (已作废，功能移动到v0.26.17 版本)  
   ***新增***：tls 流量加密，(客户端忽略证书校验，谨慎使用，客户端与服务端需要同时开启，或同时关闭)，使用方式：   
              服务端：nps.conf `tls_enable=true`;    
              客户端：npc.conf `tls_enable=true` 或者 `npc.exe  -server=xxx -vkey=xxx -tls_enable=true`  
