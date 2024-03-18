@@ -13,7 +13,7 @@
 聊天灌水QQ群：619833483
 
 # 特价云服务器  
-国内BGP，游戏开服，2核 2G 15M上行 25元/月，[专属连接，首页5折](https://www.rainyun.com/MjY0MzY1_)
+国内BGP，游戏开服，2核 2G 15M上行 25元/月，[专属连接，首月5折](https://www.rainyun.com/MjY0MzY1_)
 
   
 # 捐赠
