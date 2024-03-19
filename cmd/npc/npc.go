@@ -232,13 +232,20 @@ func run() {
 	if *verifyKey != "" && *serverAddr != "" && *configPath == "" {
 		client.SetTlsEnable(*tlsEnable)
 		logs.Info("the version of client is %s, the core version of client is %s,tls enable is %t", version.VERSION, version.GetVersion(), client.GetTlsEnable())
-		go func() {
-			for {
-				client.NewRPClient(*serverAddr, *verifyKey, *connType, *proxyUrl, nil, *disconnectTime).Start()
-				logs.Info("Client closed! It will be reconnected in five seconds")
-				time.Sleep(time.Second * 5)
-			}
-		}()
+
+		vkeys := strings.Split(*verifyKey, `,`)
+		for _, key := range vkeys {
+			key := key
+			go func() {
+				for {
+					logs.Info("start vkey:" + key)
+					client.NewRPClient(*serverAddr, key, *connType, *proxyUrl, nil, *disconnectTime).Start()
+					logs.Info("Client closed! It will be reconnected in five seconds")
+					time.Sleep(time.Second * 5)
+				}
+			}()
+		}
+
 	} else {
 		if *configPath == "" {
 			*configPath = common.GetConfigPath()

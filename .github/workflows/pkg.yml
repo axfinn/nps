@@ -64,6 +64,8 @@ jobs:
           linux_mips_server.tar.gz
           darwin_amd64_client.tar.gz
           darwin_amd64_server.tar.gz
+          darwin_arm64_client.tar.gz
+          darwin_arm64_server.tar.gz
           windows_386_client.tar.gz
           windows_386_server.tar.gz
           windows_amd64_client.tar.gz

@@ -224,6 +224,23 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 			} else {
 				connection, err = net.Dial("tcp", server)
 			}
+
+			//header := &proxyproto.Header{
+			//	Version:           1,
+			//	Command:           proxyproto.PROXY,
+			//	TransportProtocol: proxyproto.TCPv4,
+			//	SourceAddr: &net.TCPAddr{
+			//		IP:   net.ParseIP("10.1.1.1"),
+			//		Port: 1000,
+			//	},
+			//	DestinationAddr: &net.TCPAddr{
+			//		IP:   net.ParseIP("20.2.2.2"),
+			//		Port: 2000,
+			//	},
+			//}
+			//
+			//_, err = header.WriteTo(connection)
+			//_, err = io.WriteString(connection, "HELO")
 		}
 	} else {
 		sess, err = kcp.DialWithOptions(server, nil, 10, 3)
@@ -253,8 +270,8 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 		return nil, err
 	}
 	if crypt.Md5(version.GetVersion()) != string(b) {
-		logs.Error("The client does not match the server version. The current core version of the client is", version.GetVersion())
-		return nil, err
+		//logs.Error("The client does not match the server version. The current core version of the client is", version.GetVersion())
+		//return nil, err
 	}
 	if _, err := c.Write([]byte(common.Getverifyval(vkey))); err != nil {
 		return nil, err
@@ -272,7 +289,7 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 	return c, nil
 }
 
-//http proxy connection
+// http proxy connection
 func NewHttpProxyConn(url *url.URL, remoteAddr string) (net.Conn, error) {
 	req, err := http.NewRequest("CONNECT", "http://"+remoteAddr, nil)
 	if err != nil {
@@ -299,7 +316,7 @@ func NewHttpProxyConn(url *url.URL, remoteAddr string) (net.Conn, error) {
 	return proxyConn, nil
 }
 
-//get a basic auth string
+// get a basic auth string
 func basicAuth(username, password string) string {
 	auth := username + ":" + password
 	return base64.StdEncoding.EncodeToString([]byte(auth))
