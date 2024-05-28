@@ -272,6 +272,7 @@ func (s *IndexController) AddHost() {
 			Scheme:       s.getEscapeString("scheme"),
 			KeyFilePath:  s.getEscapeString("key_file_path"),
 			CertFilePath: s.getEscapeString("cert_file_path"),
+			AutoHttps:    s.GetBoolNoErr("AutoHttps"),
 		}
 		var err error
 		if h.Client, err = file.GetDb().GetClient(s.GetIntNoErr("client_id")); err != nil {
@@ -324,6 +325,7 @@ func (s *IndexController) EditHost() {
 			h.KeyFilePath = s.getEscapeString("key_file_path")
 			h.CertFilePath = s.getEscapeString("cert_file_path")
 			h.Target.LocalProxy = s.GetBoolNoErr("local_proxy")
+			h.AutoHttps = s.GetBoolNoErr("AutoHttps")
 			file.GetDb().JsonDb.StoreHostToJsonFile()
 		}
 		s.AjaxOk("modified success")

@@ -100,7 +100,7 @@ func NewHttpReverseProxy(s *httpServer) *HttpReverseProxy {
 	proxy := NewReverseProxy(&httputil.ReverseProxy{
 		Director: func(r *http.Request) {
 			host := r.Context().Value("host").(*file.Host)
-			common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, "", false)
+			common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, "")
 		},
 		Transport: &http.Transport{
 			ResponseHeaderTimeout: rp.responseHeaderTimeout,

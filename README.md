@@ -22,11 +22,21 @@
 
 
 ## 更新日志  
+- 2024-05-28  v0.26.19  
+  - golang 版本升级到 1.22.
+  - 增加自动https，自动将http 重定向（301）到 https.  
+  - 客户端命令行方式启动支持多个隧道ID，使用逗号拼接，示例：`npc -server=xxx:8024 -vkey=ytkpyr0er676m0r7,iwnbjfbvygvzyzzt` .
+  - 移除 nps.conf 参数 `https_just_proxy` , 调整 https 处理逻辑，如果上传了 https 证书，则由nps负责SSL (此方式可以获取真实IP)，
+      否则走端口转发模式（使用本地证书,nps 获取不到真实IP）， 如下图所示。    
+    ![image](image/new/https.png)
+
+
+
 - 2024-02-27  v0.26.18  
   ***新增***：nps.conf 新增 `tls_bridge_port=8025` 参数，当 `tls_enable=true` 时，nps 会监听8025端口，作为 tls 的连接端口。  
              客户端可以选择连接 tls 端口或者非 tls 端口： `npc.exe  -server=xxx:8024 -vkey=xxx` 或 `npc.exe  -server=xxx:8025 -vkey=xxx -tls_enable=true`
   
-
+  
 - 2024-01-31  v0.26.17  
   ***说明***：考虑到 npc 历史版本客户端众多，版本号不同旧版本客户端无法连接，为了兼容，仓库版本号将继续沿用 0.26.xx
 

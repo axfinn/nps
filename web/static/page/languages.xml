@@ -279,13 +279,13 @@
 		<en-US>HTTP port</en-US>
 	</lang>
 	<lang id="word-httpscert">
-		<zh-CN>HTTPS 证书</zh-CN>
+		<zh-CN>HTTPS 证书（pem格式）</zh-CN>
 		<en-US>HTTPS cert</en-US>
 	</lang>
 	<lang id="word-https">HTTPS
 	</lang>
 	<lang id="word-httpskey">
-		<zh-CN>HTTPS 密钥</zh-CN>
+		<zh-CN>HTTPS 密钥（key格式）</zh-CN>
 		<en-US>HTTPS key</en-US>
 	</lang>
 	<lang id="word-httpsport">

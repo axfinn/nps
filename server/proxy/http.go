@@ -102,6 +102,20 @@ func (s *httpServer) Close() error {
 
 func (s *httpServer) handleTunneling(w http.ResponseWriter, r *http.Request) {
 
+	var host *file.Host
+	var err error
+	host, err = file.GetDb().GetInfoByHost(r.Host, r)
+	if err != nil {
+		logs.Debug("the url %s %s %s can't be parsed!", r.URL.Scheme, r.Host, r.RequestURI)
+		return
+	}
+
+	// 自动 http 301 https
+	if host.AutoHttps && r.TLS == nil {
+		http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusMovedPermanently)
+		return
+	}
+
 	if r.Header.Get("Upgrade") != "" {
 		rProxy := NewHttpReverseProxy(s)
 		rProxy.ServeHTTP(w, r)
@@ -246,7 +260,7 @@ reset:
 		}
 
 		//change the host and header and set proxy setting
-		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String(), s.addOrigin)
+		common.ChangeHostAndHeader(r, host.HostChange, host.HeaderChange, c.Conn.RemoteAddr().String())
 
 		logs.Info("%s request, method %s, host %s, url %s, remote address %s, target %s", r.URL.Scheme, r.Method, r.Host, r.URL.Path, remoteAddr, lk.Host)
 
@@ -302,4 +316,36 @@ func (s *httpServer) NewServer(port int, scheme string) *http.Server {
 		// Disable HTTP/2.
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
 	}
+}
+
+func (s *httpServer) NewServerWithTls(port int, scheme string, l net.Listener, certFile string, keyFile string) error {
+
+	if certFile == "" || keyFile == "" {
+		logs.Error("证书文件为空")
+		return nil
+	}
+	var certFileByte = []byte(certFile)
+	var keyFileByte = []byte(keyFile)
+
+	config := &tls.Config{}
+	config.Certificates = make([]tls.Certificate, 1)
+
+	var err error
+	config.Certificates[0], err = tls.X509KeyPair(certFileByte, keyFileByte)
+	if err != nil {
+		return err
+	}
+
+	s2 := &http.Server{
+		Addr: ":" + strconv.Itoa(port),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.URL.Scheme = scheme
+			s.handleTunneling(w, r)
+		}),
+		// Disable HTTP/2.
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler)),
+		TLSConfig:    config,
+	}
+
+	return s2.ServeTLS(l, "", "")
 }
