@@ -22,7 +22,7 @@
 
 
 ## 更新日志  
-- 2024-05-28  v0.26.19  
+- 2024-06-01  v0.26.19  
   - golang 版本升级到 1.22.
   - 增加自动https，自动将http 重定向（301）到 https.  
   - 客户端命令行方式启动支持多个隧道ID，使用逗号拼接，示例：`npc -server=xxx:8024 -vkey=ytkpyr0er676m0r7,iwnbjfbvygvzyzzt` .
