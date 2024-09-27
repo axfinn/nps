@@ -10,7 +10,7 @@
 ***DockerHub***： [NPS](https://hub.docker.com/r/yisier1/nps) [NPC](https://hub.docker.com/r/yisier1/npc)
 
 # 交流群
-聊天灌水QQ群：619833483
+聊天灌水QQ群：770569342,619833483(已满)
 
 # 公益云内网穿透
 https://natnps.com/
