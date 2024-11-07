@@ -32,7 +32,7 @@ https://natnps.com/
   
   修复：
   - 客户端限速单位不统一 [#185](https://github.com/yisier/nps/issues/185)
-  - 增加从下拉选择客户端,新增编辑后不会刷新界面 [#183](https://github.com/yisier/nps/issues/183)
+  - 增加从下拉选择客户端,隧道列表排序,新增编辑后不会刷新界面 [#183](https://github.com/yisier/nps/issues/183)
   - 隧道数量限制无法统计域名映射 [#209](https://github.com/yisier/nps/issues/209) 
   
 
