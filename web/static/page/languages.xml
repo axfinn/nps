@@ -740,6 +740,11 @@
 		<en-US>IP Black List</en-US>
 	</lang>
 
+	<lang id="word-createtime">
+		<zh-CN>创建时间</zh-CN>
+		<en-US>Create Time</en-US>
+	</lang>
+
 	<lang id="word-lastonlinetime">
 		<zh-CN>上次在线时间</zh-CN>
 		<en-US>Last Online Time</en-US>

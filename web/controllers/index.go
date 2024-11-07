@@ -278,6 +278,10 @@ func (s *IndexController) AddHost() {
 		if h.Client, err = file.GetDb().GetClient(s.GetIntNoErr("client_id")); err != nil {
 			s.AjaxErr("add error the client can not be found")
 		}
+		if h.Client.MaxTunnelNum != 0 && h.Client.GetTunnelNum() >= h.Client.MaxTunnelNum {
+			s.AjaxErr("The number of tunnels exceeds the limit")
+		}
+
 		if err := file.GetDb().NewHost(h); err != nil {
 			s.AjaxErr("add fail" + err.Error())
 		}

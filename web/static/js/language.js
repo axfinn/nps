@@ -157,7 +157,11 @@ function submitform(action, url, postdata) {
                 success: function (res) {
                     alert(langreply(res.msg));
                     if (res.status) {
-                        if (postsubmit) {document.location.reload();}else{history.back(-1);}
+                        if (postsubmit) {
+							document.location.reload();
+						}else{
+							window.location.href= document.referrer
+						}
                     }
                 }
             });
