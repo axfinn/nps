@@ -9,6 +9,8 @@
 
 ***DockerHub***： [NPS](https://hub.docker.com/r/yisier1/nps) [NPC](https://hub.docker.com/r/yisier1/npc)
 
+***宝塔面板***：[宝塔面板 Docker](docs/bt.md)
+
 # 交流群
 聊天灌水QQ群：770569342,619833483(已满)
 
