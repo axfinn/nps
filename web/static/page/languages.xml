@@ -189,6 +189,12 @@
 		<zh-CN>访问端命令</zh-CN>
 		<en-US>Access command</en-US>
 	</lang>
+
+	<lang id="word-quicklycommand">
+		<zh-CN>快捷启动命令</zh-CN>
+		<en-US>Quickly command</en-US>
+	</lang>
+
 	<lang id="word-commandclient">
 		<zh-CN>客户端命令</zh-CN>
 		<en-US>Command</en-US>
