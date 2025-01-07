@@ -142,6 +142,17 @@
                 visible: true//false表示不显示
             },
             {
+                field: 'address',//域值
+                title: '<span langtag="word-accessaddress"></span>',//标题
+                halign: 'center',
+                sortable: false, //启用排序
+                visible: true,//false表示不显示
+                formatter: function (value, row, index) {
+                    var address = {{.ip}} + ":" + row.Port
+                    return "<a href='http://" + address + "' target='_blank'>" + address + "</a>"
+                }
+            },
+            {
                 field: 'Target',//域值
                 title: '<span langtag="word-target"></span>',//标题
                 halign: 'center',

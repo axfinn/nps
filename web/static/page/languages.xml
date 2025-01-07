@@ -396,6 +396,12 @@
 		<zh-CN>端口</zh-CN>
 		<en-US>Port</en-US>
 	</lang>
+
+	<lang id="word-accessaddress">
+		<zh-CN>访问地址</zh-CN>
+		<en-US>Access address</en-US>
+	</lang>
+
 	<lang id="word-proxytolocal">
 		<zh-CN>代理到服务器本地</zh-CN>
 		<en-US>Proxy to server local</en-US>
