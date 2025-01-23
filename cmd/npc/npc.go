@@ -431,6 +431,21 @@ func systemPro(flag string, serAddr string, vkey string) {
 		svcConfig.Arguments = append(svcConfig.Arguments, "-server="+serAddr)
 		svcConfig.Arguments = append(svcConfig.Arguments, "-vkey="+vkey)
 		svcConfig.Arguments = append(svcConfig.Arguments, "-debug=false")
+
+		*logPath = common.GetNpcLogPath()
+		if common.IsWindows() {
+			*logPath = strings.Replace(*logPath, "\\", "\\\\", -1)
+		}
+
+		*logPath = strings.Replace(*logPath, "npc.log", "npc-"+vkey+".log", -1)
+		svcConfig.Arguments = append(svcConfig.Arguments, "-log_path="+*logPath)
+
+		logs.NewLogger()
+		logs.Reset()
+		logs.EnableFuncCallDepth(true)
+		logs.SetLogFuncCallDepth(3)
+		logs.SetLogger(logs.AdapterFile, `{"level":`+*logLevel+`,"filename":"`+*logPath+`","daily":false,"maxlines":100000,"color":true}`)
+
 		install.InstallNpc()
 		err := service.Control(s, "install")
 		if err != nil {
