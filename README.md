@@ -2,6 +2,70 @@
 
 [README](https://github.com/ehang-io/nps/blob/master/README.md)|[中文文档](https://github.com/ehang-io/nps/blob/master/README_zh.md)
 
+## 项目介绍
+
+NPS是一款轻量级、高性能的内网穿透代理服务器，支持多种协议穿透，提供Web管理端。
+
+主要功能:
+- TCP/UDP流量转发
+- HTTP/HTTPS代理
+- SOCKS5代理
+- P2P穿透
+- Web管理端支持客户端管理、隧道配置、流量统计、黑白名单等
+
+## 特性
+
+- 多协议支持（TCP、UDP、HTTP、HTTPS、SOCKS5、P2P）
+- Web UI管理
+- 客户端一键启动
+- 流量限制、带宽控制
+- TLS加密支持
+- 自动HTTPS重定向
+- 支持Docker部署
+
+## 最近更新日志
+
+- 2025-07-26  v0.26.26
+  优化：
+  - 核心性能优化：减少锁竞争，使用原子操作替代部分锁操作，优化sync.Map遍历效率
+  - 流量统计优化
+  - 连接数管理优化
+  - 服务器数据统计优化
+  - 接口实现修复
+
+- 2025-05-28  v0.26.25  
+  新增：
+  - nps增加`nps(.exe) -server` 命令，用于管理NPS服务，安装和卸载服务在 Linux 下需要有 sudo 权限，Windows 下需要有管理员权限。  
+  - 增加【TLS快捷启动命令】，可用于在tls模式下，快速启动客户端。 [257](https://github.com/yisier/nps/issues/257)
+
+[查看完整更新日志](CHANGELOG.md)
+
+## 快速开始
+
+### 服务端启动
+
+```bash
+# 直接运行
+./nps
+
+# 或者安装为系统服务
+./nps install
+nps start
+```
+
+### 客户端连接
+
+```bash
+# 无配置文件模式启动客户端
+./npc -server=服务器IP:8024 -vkey=客户端密钥
+```
+
+## 项目信息
+
+- 项目版本: v0.26.26
+- 主要语言: Go 1.22
+- 许可证: MIT
+
 # 说明
 由于nps已经有二年多的时间没有更新了，存留了不少bug和未完善的功能。
 
