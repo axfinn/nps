@@ -71,19 +71,6 @@ nps start
 
 此版本基于 nps 0.26.10的基础上二次开发而来。
 
-***DockerHub***： [NPS](https://hub.docker.com/r/yisier1/nps) [NPC](https://hub.docker.com/r/yisier1/npc)
-
-***宝塔面板***：[宝塔面板 Docker](docs/bt.md)
-
-# 交流群
-聊天灌水QQ群：619833483(2000人群),770569342
-
-# 免费NPS节点
-https://natnps.com/
-免费NPS内网穿透节点，长期免费，6M带宽，3条隧道，欢迎来嫖，自行注册账号。
-
-# 特价云服务器  
-国内BGP，游戏开服，2核 2G 15M上行 25元/月，[专属连接，首月5折](https://www.rainyun.com/MjY0MzY1_)
 
 # 提示
 强烈推荐使用无配置文件模式启动客户端（删除掉npc.exe 目录下的`conf`文件夹即可），所有数据应该在服务端保存和配置，而客户端只做连接转发。客户端配置文件对小白极不友好，配置繁琐，容易出错。   
