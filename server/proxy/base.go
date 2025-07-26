@@ -7,7 +7,6 @@ import (
 	"sort"
 	"sync"
 
-	"ehang.io/nps/bridge"
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/conn"
 	"ehang.io/nps/lib/file"
@@ -32,7 +31,7 @@ type BaseServer struct {
 	sync.Mutex
 }
 
-func NewBaseServer(bridge *bridge.Bridge, task *file.Tunnel) *BaseServer {
+func NewBaseServer(bridge NetBridge, task *file.Tunnel) *BaseServer {
 	return &BaseServer{
 		bridge:       bridge,
 		task:         task,
@@ -55,6 +54,16 @@ func (s *BaseServer) FlowAddHost(host *file.Host, in, out int64) {
 	defer s.Unlock()
 	host.Flow.ExportFlow += out
 	host.Flow.InletFlow += in
+}
+
+// 使用原子操作优化流量统计方法
+func (s *BaseServer) FlowAddAtomic(in, out int64) {
+	s.task.Flow.AtomicAdd(in, out)
+}
+
+// 使用原子操作优化Host流量统计方法
+func (s *BaseServer) FlowAddHostAtomic(host *file.Host, in, out int64) {
+	host.Flow.AtomicAdd(in, out)
 }
 
 // write fail bytes to the connection
