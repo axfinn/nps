@@ -1,7 +1,6 @@
 package server
 
 import (
-	"ehang.io/nps/lib/version"
 	"errors"
 	"math"
 	"os"
@@ -412,52 +411,39 @@ func DelClientConnect(clientId int) {
 
 func GetDashboardData() map[string]interface{} {
 	data := make(map[string]interface{})
-	data["version"] = version.VERSION
-	data["hostCount"] = common.GeSynctMapLen(file.GetDb().JsonDb.Hosts)
+	//client count
 	data["clientCount"] = common.GeSynctMapLen(file.GetDb().JsonDb.Clients)
-	if beego.AppConfig.String("public_vkey") != "" { //remove public vkey
-		data["clientCount"] = data["clientCount"].(int) - 1
-	}
-	dealClientData()
-	c := 0
-	var in, out int64
-	file.GetDb().JsonDb.Clients.Range(func(key, value interface{}) bool {
-		v := value.(*file.Client)
-		if v.IsConnect {
-			c += 1
-		}
-		in += v.Flow.InletFlow
-		out += v.Flow.ExportFlow
-		return true
-	})
-	data["clientOnlineCount"] = c
-	data["inletFlowCount"] = int(in)
-	data["exportFlowCount"] = int(out)
-	var tcp, udp, secret, socks5, p2p, http int
+	//task count
+	tcpCount := 0
+	udpCount := 0
+	httpProxyCount := 0
+	socks5Count := 0
+	secretCount := 0
+	p2pCount := 0
 	file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
 		switch value.(*file.Tunnel).Mode {
 		case "tcp":
-			tcp += 1
+			tcpCount += 1
 		case "socks5":
-			socks5 += 1
+			socks5Count += 1
 		case "httpProxy":
-			http += 1
+			httpProxyCount += 1
 		case "udp":
-			udp += 1
+			udpCount += 1
 		case "p2p":
-			p2p += 1
+			p2pCount += 1
 		case "secret":
-			secret += 1
+			secretCount += 1
 		}
 		return true
 	})
 
-	data["tcpC"] = tcp
-	data["udpCount"] = udp
-	data["socks5Count"] = socks5
-	data["httpProxyCount"] = http
-	data["secretCount"] = secret
-	data["p2pCount"] = p2p
+	data["tcpCount"] = tcpCount
+	data["udpCount"] = udpCount
+	data["httpProxyCount"] = httpProxyCount
+	data["socks5Count"] = socks5Count
+	data["secretCount"] = secretCount
+	data["p2pCount"] = p2pCount
 	data["bridgeType"] = beego.AppConfig.String("bridge_type")
 	data["httpProxyPort"] = beego.AppConfig.String("http_proxy_port")
 	data["httpsProxyPort"] = beego.AppConfig.String("https_proxy_port")
@@ -466,13 +452,15 @@ func GetDashboardData() map[string]interface{} {
 	data["serverIp"] = beego.AppConfig.String("p2p_ip")
 	data["p2pPort"] = beego.AppConfig.String("p2p_port")
 	data["logLevel"] = beego.AppConfig.String("log_level")
-	tcpCount := 0
-
+	
+	// 使用原子操作优化连接数统计
+	var tcpConnCount int32
 	file.GetDb().JsonDb.Clients.Range(func(key, value interface{}) bool {
-		tcpCount += int(value.(*file.Client).NowConn)
+		client := value.(*file.Client)
+		tcpConnCount += client.GetNowConn()
 		return true
 	})
-	data["tcpCount"] = tcpCount
+	data["tcpConnCount"] = tcpConnCount
 	cpuPercet, _ := cpu.Percent(0, true)
 	var cpuAll float64
 	for _, v := range cpuPercet {

@@ -338,50 +338,63 @@ func (s *Bridge) register(c *conn.Conn) {
 }
 
 func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, t *file.Tunnel) (target net.Conn, err error) {
-	//if the proxy type is local
+	// 如果是本地代理类型，直接连接目标地址
 	if link.LocalProxy {
-		target, err = net.Dial("tcp", link.Host)
-		return
+		return net.Dial("tcp", link.Host)
 	}
-	if v, ok := s.Client.Load(clientId); ok {
-		//If ip is restricted to do ip verification
-		if s.ipVerify {
-			ip := common.GetIpByAddr(link.RemoteAddr)
-			if v, ok := s.Register.Load(ip); !ok {
-				return nil, errors.New(fmt.Sprintf("The ip %s is not in the validation list", ip))
-			} else {
-				if !v.(time.Time).After(time.Now()) {
-					return nil, errors.New(fmt.Sprintf("The validity of the ip %s has expired", ip))
-				}
-			}
+
+	// 查找客户端
+	client, ok := s.Client.Load(clientId)
+	if !ok {
+		return nil, errors.New("client not found")
+	}
+	c := client.(*Client)
+	
+	// IP验证
+	if s.ipVerify {
+		ip := common.GetIpByAddr(link.RemoteAddr)
+		expiryTime, ok := s.Register.Load(ip)
+		if !ok {
+			return nil, fmt.Errorf("the ip %s is not in the validation list", ip)
 		}
-		var tunnel *nps_mux.Mux
-		if t != nil && t.Mode == "file" {
-			tunnel = v.(*Client).file
-		} else {
-			tunnel = v.(*Client).tunnel
+		if !expiryTime.(time.Time).After(time.Now()) {
+			return nil, fmt.Errorf("the validity of the ip %s has expired", ip)
 		}
-		if tunnel == nil {
-			err = errors.New("the client connect error")
-			return
-		}
-		if target, err = tunnel.NewConn(); err != nil {
-			return
-		}
-		if t != nil && t.Mode == "file" {
-			//TODO if t.mode is file ,not use crypt or compress
-			link.Crypt = false
-			link.Compress = false
-			return
-		}
-		if _, err = conn.NewConn(target).SendInfo(link, ""); err != nil {
-			logs.Info("new connect error ,the target %s refuse to connect", link.Host)
-			return
-		}
+	}
+	
+	// 获取隧道
+	var tunnel *nps_mux.Mux
+	if t != nil && t.Mode == "file" {
+		tunnel = c.file
 	} else {
-		err = errors.New(fmt.Sprintf("the client %d is not connect", clientId))
+		tunnel = c.tunnel
 	}
-	return
+	
+	if tunnel == nil {
+		return nil, errors.New("the client connect error")
+	}
+	
+	// 创建新连接
+	target, err = tunnel.NewConn()
+	if err != nil {
+		return nil, err
+	}
+	
+	// 如果是文件模式，不需要加密和压缩
+	if t != nil && t.Mode == "file" {
+		link.Crypt = false
+		link.Compress = false
+		return target, nil
+	}
+	
+	// 发送连接信息
+	connWrapper := conn.NewConn(target)
+	if _, err := connWrapper.SendInfo(link, ""); err != nil {
+		target.Close()
+		return nil, fmt.Errorf("failed to send info: %v", err)
+	}
+	
+	return target, nil
 }
 
 func (s *Bridge) ping() {

@@ -1,5 +1,26 @@
 # 变更日志
 
+## [0.26.26] - 2025-07-26
+
+### 优化
+- 核心性能优化：减少锁竞争，使用原子操作替代部分锁操作，优化sync.Map遍历效率
+- 流量统计优化：
+  - 在Flow结构体中添加AtomicAdd和GetFlow方法，使用原子操作更新流量统计，避免锁竞争
+  - 在BaseServer中添加FlowAddAtomic和FlowAddHostAtomic方法，使用原子操作更新流量
+- 连接数管理优化：
+  - 在Client结构体中优化GetConn方法，使用atomic.LoadInt32直接读取连接数，避免不必要的锁
+  - 添加GetNowConn方法，用于原子地获取当前连接数
+- sync.Map遍历优化：
+  - 优化storeSyncMapToFile函数，使用goroutine和channel并行处理数据序列化和文件写入
+  - 减少锁的持有时间，提高并发性能
+- 服务器数据统计优化：
+  - 在GetDashboardData函数中使用原子操作统计客户端连接数，避免锁竞争
+- 接口实现修复：
+  - 修复Bridge结构体，确保正确实现NetBridge接口
+
+### 版本更新
+- 项目版本从 v0.26.25 更新至 v0.26.26
+
 ## 2025-07-26
 
 ### 优化
