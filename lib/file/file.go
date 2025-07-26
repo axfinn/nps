@@ -186,6 +186,32 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 	if err != nil {
 		panic(err)
 	}
+	
+	// 使用channel来收集需要存储的对象，减少锁的持有时间
+	type storeItem struct {
+		data []byte
+	}
+	
+	// 创建一个channel用于收集数据
+	items := make(chan storeItem, 100)
+	done := make(chan bool)
+	
+	// 启动一个goroutine来写入文件
+	go func() {
+		for item := range items {
+			_, err = file.Write(item.data)
+			if err != nil {
+				panic(err)
+			}
+			_, err = file.Write([]byte("\n" + common.CONN_DATA_SEQ))
+			if err != nil {
+				panic(err)
+			}
+		}
+		done <- true
+	}()
+	
+	// 遍历sync.Map并将数据发送到channel
 	m.Range(func(key, value interface{}) bool {
 		var b []byte
 		var err error
@@ -217,16 +243,14 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 		if err != nil {
 			return true
 		}
-		_, err = file.Write(b)
-		if err != nil {
-			panic(err)
-		}
-		_, err = file.Write([]byte("\n" + common.CONN_DATA_SEQ))
-		if err != nil {
-			panic(err)
-		}
+		items <- storeItem{data: b}
 		return true
 	})
+	
+	// 关闭channel并等待写入完成
+	close(items)
+	<-done
+	
 	_ = file.Sync()
 	_ = file.Close()
 	// must close file first, then rename it
