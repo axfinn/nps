@@ -24,6 +24,19 @@ func (s *Flow) Add(in, out int64) {
 	s.ExportFlow += int64(out)
 }
 
+// 使用原子操作优化流量统计，避免锁竞争
+func (s *Flow) AtomicAdd(in, out int64) {
+	atomic.AddInt64(&s.InletFlow, in)
+	atomic.AddInt64(&s.ExportFlow, out)
+}
+
+// 读取流量数据使用读锁
+func (s *Flow) GetFlow() (in, out int64) {
+	s.RLock()
+	defer s.RUnlock()
+	return s.InletFlow, s.ExportFlow
+}
+
 type Config struct {
 	U        string
 	P        string
@@ -84,11 +97,16 @@ func (s *Client) AddConn() {
 }
 
 func (s *Client) GetConn() bool {
-	if s.MaxConn == 0 || int(s.NowConn) < s.MaxConn {
+	if s.MaxConn == 0 || int(atomic.LoadInt32(&s.NowConn)) < s.MaxConn {
 		s.CutConn()
 		return true
 	}
 	return false
+}
+
+// 获取当前连接数
+func (s *Client) GetNowConn() int32 {
+	return atomic.LoadInt32(&s.NowConn)
 }
 
 func (s *Client) HasTunnel(t *Tunnel) (exist bool) {
@@ -104,22 +122,29 @@ func (s *Client) HasTunnel(t *Tunnel) (exist bool) {
 }
 
 func (s *Client) GetTunnelNum() (num int) {
-	GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
-		v := value.(*Tunnel)
-		if v.Client.Id == s.Id {
-			num++
+	countFn := func(id int) func(interface{}, interface{}) bool {
+		return func(key, value interface{}) bool {
+			if getClientID(value) == id {
+				num++
+			}
+			return true
 		}
-		return true
-	})
+	}
 
-	GetDb().JsonDb.Hosts.Range(func(key, value interface{}) bool {
-		v := value.(*Host)
-		if v.Client.Id == s.Id {
-			num++
-		}
-		return true
-	})
+	db := GetDb().JsonDb
+	db.Tasks.Range(countFn(s.Id))
+	db.Hosts.Range(countFn(s.Id))
 	return
+}
+
+func getClientID(value interface{}) int {
+	switch v := value.(type) {
+	case *Tunnel:
+		return v.Client.Id
+	case *Host:
+		return v.Client.Id
+	}
+	return -1
 }
 
 func (s *Client) HasHost(h *Host) bool {
