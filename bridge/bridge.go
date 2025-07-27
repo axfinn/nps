@@ -197,9 +197,9 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 	}
 	//version check
 	if b, err := c.GetShortLenContent(); err != nil || string(b) != version.GetVersion() {
-		//logs.Info("The client %s version does not match", c.Conn.RemoteAddr())
-		//c.Close()
-		//return
+		logs.Info("The client %s version does not match", c.Conn.RemoteAddr())
+		c.Close()
+		return
 	}
 	//version get
 	var vs []byte
