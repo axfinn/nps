@@ -21,7 +21,12 @@
 	function setCookie (c_name, value, expiredays) {
 		var exdate = new Date();
 		exdate.setDate(exdate.getDate() + expiredays);
-		document.cookie = c_name + '=' + escape(value) + ((expiredays == null) ? '' : ';expires=' + exdate.toGMTString())+ '; path='+window.nps.web_base_url+'/;';
+		// 处理web_base_url为空的情况
+		var path = window.nps.web_base_url || '';
+		if (path === '') {
+			path = '/';
+		}
+		document.cookie = c_name + '=' + escape(value) + ((expiredays == null) ? '' : ';expires=' + exdate.toGMTString())+ '; path=' + path + ';';
 	}
 
 	function getCookie (c_name) {
@@ -57,9 +62,11 @@
 	}
 
 	$.fn.cloudLang = function () {
+		// 处理web_base_url为空的情况
+		var baseUrl = window.nps.web_base_url || '';
 		$.ajax({
 			type: 'GET',
-			url: window.nps.web_base_url + '/static/page/languages.xml?v=20250107',
+			url: baseUrl + '/static/page/languages.xml?v=20250107',
 			dataType: 'xml',
 			success: function (xml) {
 				languages['content'] = xml2json($(xml).children())['content'];
@@ -67,7 +74,9 @@
 				languages['default'] = languages['content']['default'];
 				languages['navigator'] = (getCookie ('lang') || navigator.language || navigator.browserLanguage);
 				for(var key in languages['menu']){
-					$('#languagemenu').next().append('<li lang="' + key + '"><a><img src="' + window.nps.web_base_url + '/static/img/flag/' + key + '.png"> ' + languages['menu'][key] +'</a></li>');
+					// 处理web_base_url为空的情况
+					var flagUrl = baseUrl + '/static/img/flag/' + key + '.png';
+					$('#languagemenu').next().append('<li lang="' + key + '"><a><img src="' + flagUrl + '"> ' + languages['menu'][key] +'</a></li>');
 					if ( key == languages['navigator'] ) languages['current'] = key;
 				}
 				$('#languagemenu').attr('lang',(languages['current'] || languages['default']));
