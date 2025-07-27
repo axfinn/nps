@@ -18,3 +18,8 @@ var GIT_HASH string
 
 // ALL_CONFIG is all config of the current nps binary
 var ALL_CONFIG string
+
+// Compulsory minimum version, Minimum downward compatibility to this version
+func GetVersion() string {
+	return "0.26.0"
+}
