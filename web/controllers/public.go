@@ -25,5 +25,5 @@ func (this *PublicController) Downloads() {
 	}
 	
 	this.Layout = "public/layout.html" // 使用公共布局
-	this.TplName = "public/downloads_content.html" // 使用内容模板
+	this.TplName = "public/downloads.html" // 使用正确的内容模板
 }
