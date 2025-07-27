@@ -1,5 +1,13 @@
 # 变更日志
 
+## [0.26.27] - 2025-07-27
+
+### 新增
+- Docker镜像自动构建功能
+  - 添加GitHub Actions工作流，实现多平台Docker镜像自动构建
+  - 支持linux/amd64、linux/arm、linux/arm64平台
+  - 自动推送latest和版本标签镜像到Docker Hub
+
 ## [0.26.26] - 2025-07-26
 
 ### 优化
