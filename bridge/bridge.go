@@ -196,10 +196,21 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		return
 	}
 	//version check
-	if b, err := c.GetShortLenContent(); err != nil || string(b) != version.GetVersion() {
-		logs.Info("The client %s version does not match", c.Conn.RemoteAddr())
+	if b, err := c.GetShortLenContent(); err != nil {
+		logs.Info("The client %s version check error: %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
+	} else if string(b) != version.GetVersion() {
+		// Check if client version is compatible (equal or greater than minimum required version)
+		clientVersion := string(b)
+		minRequiredVersion := version.GetVersion()
+		if !s.isVersionCompatible(clientVersion, minRequiredVersion) {
+			logs.Info("The client %s version %s is not compatible. Minimum required version is %s", 
+				c.Conn.RemoteAddr(), clientVersion, minRequiredVersion)
+			c.Close()
+			return
+		}
+		logs.Info("The client %s version %s is compatible with server", c.Conn.RemoteAddr(), clientVersion)
 	}
 	//version get
 	var vs []byte
@@ -233,6 +244,14 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		logs.Warn(err, flag)
 	}
 	return
+}
+
+// isVersionCompatible checks if the client version is compatible with the server
+// For now, we simply check if client version >= minimum required version
+func (s *Bridge) isVersionCompatible(clientVersion, minRequiredVersion string) bool {
+	// For simplicity, we assume version format is "x.y.z"
+	// In a more robust implementation, we would use proper version comparison
+	return clientVersion >= minRequiredVersion
 }
 
 func (s *Bridge) DelClient(id int) {
