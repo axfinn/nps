@@ -1,23 +1,35 @@
-# IDE相关文件
-.idea
-
-# 编译产物
+# Binaries for programs and plugins
 *.exe
+*.exe~
 *.dll
 *.so
 *.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# 日志文件
+# Dependency directories
+vendor/
+
+# Ignore nps and npc binary files
+nps
+npc
+
+# Ignore log files
 *.log
 
-# 下载文件目录
-downloads/
-web/static/downloads/
+# Ignore nohup output
+nohup.out
 
-# 临时配置文件
-web/controllers/public.go
+# Ignore local configuration files
+/conf/*.conf
+!/conf/nps.conf
+!/conf/npc.conf
 
-# 构建生成的文件
-dist/
-release/
+# Ignore IDE files
+*.swp
+*.swo
+*~
