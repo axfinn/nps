@@ -32,4 +32,6 @@ nohup.out
 # Ignore IDE files
 *.swp
 *.swo
-*~
+*~dist/
+downloads/
+web/static/downloads/
