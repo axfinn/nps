@@ -58,9 +58,19 @@ func (self *LoginController) Verify() {
 	password := self.GetString("password")
 	captchaOpen, _ := beego.AppConfig.Bool("open_captcha")
 	if captchaOpen {
+		// 修复验证码验证逻辑，确保正确处理web_base_url
+		webBaseUrl := beego.AppConfig.String("web_base_url")
+		// 重新初始化验证码实例以确保路由正确
+		captchaUrl := "/captcha/"
+		if webBaseUrl != "" {
+			captchaUrl = webBaseUrl + captchaUrl
+		}
+		cpt = captcha.NewWithFilter(captchaUrl, cache.NewMemoryCache())
+		
 		if !cpt.VerifyReq(self.Ctx.Request) {
 			self.Data["json"] = map[string]interface{}{"status": 0, "msg": "the verification code is wrong, please get it again and try again"}
 			self.ServeJSON()
+			return
 		}
 	}
 	if self.doLogin(username, password, true) {
