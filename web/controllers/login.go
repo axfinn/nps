@@ -41,6 +41,10 @@ func (self *LoginController) Index() {
 	self.Data["web_base_url"] = webBaseUrl
 	self.Data["register_allow"], _ = beego.AppConfig.Bool("allow_user_register")
 	self.Data["captcha_open"], _ = beego.AppConfig.Bool("open_captcha")
+	// 确保在使用验证码时正确处理web_base_url
+	if captchaOpen, _ := beego.AppConfig.Bool("open_captcha"); captchaOpen {
+		cpt = captcha.NewWithFilter(webBaseUrl+"/captcha/", cache.NewMemoryCache())
+	}
 	self.TplName = "login/index.html"
 }
 
