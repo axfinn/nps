@@ -1,17 +1,19 @@
 package controllers
 
 import (
-	"github.com/astaxie/beego/cache"
-	"github.com/astaxie/beego/utils/captcha"
 	"math/rand"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/astaxie/beego/cache"
+	"github.com/astaxie/beego/utils/captcha"
+
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/file"
 	"ehang.io/nps/server"
 	"github.com/astaxie/beego"
+	"github.com/astaxie/beego/logs"
 )
 
 type LoginController struct {
@@ -35,12 +37,14 @@ func init() {
 func (self *LoginController) Index() {
 	// Try login implicitly, will succeed if it's configured as no-auth(empty username&password).
 	webBaseUrl := beego.AppConfig.String("web_base_url")
+	logs.Info("Login Index: web_base_url=%s", webBaseUrl)
 	if self.doLogin("", "", false) {
 		self.Redirect(webBaseUrl+"/index/index", 302)
 	}
 	self.Data["web_base_url"] = webBaseUrl
 	self.Data["register_allow"], _ = beego.AppConfig.Bool("allow_user_register")
 	self.Data["captcha_open"], _ = beego.AppConfig.Bool("open_captcha")
+
 	// 确保在使用验证码时正确处理web_base_url
 	if captchaOpen, _ := beego.AppConfig.Bool("open_captcha"); captchaOpen {
 		// 处理web_base_url为空的情况
@@ -48,8 +52,9 @@ func (self *LoginController) Index() {
 		if webBaseUrl != "" {
 			captchaUrl = webBaseUrl + captchaUrl
 		}
-		cpt = captcha.NewWithFilter(captchaUrl, cache.NewMemoryCache())
+		logs.Info("Login Index: captchaOpen=true, web_base_url=%s, captchaUrl=%s", webBaseUrl, captchaUrl)
 	}
+
 	self.TplName = "login/index.html"
 }
 
@@ -57,32 +62,29 @@ func (self *LoginController) Verify() {
 	username := self.GetString("username")
 	password := self.GetString("password")
 	captchaOpen, _ := beego.AppConfig.Bool("open_captcha")
+
+	logs.Info("Login Verify: username=%s, captchaOpen=%t", username, captchaOpen)
+
 	if captchaOpen {
-		// 修复验证码验证逻辑，确保正确处理web_base_url
-		webBaseUrl := beego.AppConfig.String("web_base_url")
-		// 重新初始化验证码实例以确保路由正确
-		captchaUrl := "/captcha/"
-		if webBaseUrl != "" {
-			captchaUrl = webBaseUrl + captchaUrl
-		}
-		cpt = captcha.NewWithFilter(captchaUrl, cache.NewMemoryCache())
-		
-		if !cpt.VerifyReq(self.Ctx.Request) {
-			self.Data["json"] = map[string]interface{}{"status": 0, "msg": "the verification code is wrong, please get it again and try again"}
-			self.ServeJSON()
-			return
+		if captchaOpen {
+			if !cpt.VerifyReq(self.Ctx.Request) {
+				self.Data["json"] = map[string]interface{}{"status": 0, "msg": "the verification code is wrong, please get it again and try again"}
+				self.ServeJSON()
+			}
 		}
 	}
 	if self.doLogin(username, password, true) {
+		logs.Info("Login Verify: login succeeded for user %s", username)
 		self.Data["json"] = map[string]interface{}{"status": 1, "msg": "login success"}
 	} else {
+		logs.Warn("Login Verify: login failed for user %s", username)
 		self.Data["json"] = map[string]interface{}{"status": 0, "msg": "username or password incorrect"}
 	}
 	self.ServeJSON()
 }
 
 func (self *LoginController) doLogin(username, password string, explicit bool) bool {
-	clearIprecord()
+	self.clearIprecord()
 	ip, _, _ := net.SplitHostPort(self.Ctx.Request.RemoteAddr)
 	if v, ok := ipRecord.Load(ip); ok {
 		vv := v.(*record)
@@ -141,44 +143,13 @@ func (self *LoginController) doLogin(username, password string, explicit bool) b
 	}
 	return false
 }
-func (self *LoginController) Register() {
-	if self.Ctx.Request.Method == "GET" {
-		self.Data["web_base_url"] = beego.AppConfig.String("web_base_url")
-		self.TplName = "login/register.html"
-	} else {
-		if b, err := beego.AppConfig.Bool("allow_user_register"); err != nil || !b {
-			self.Data["json"] = map[string]interface{}{"status": 0, "msg": "register is not allow"}
-			self.ServeJSON()
-			return
-		}
-		if self.GetString("username") == "" || self.GetString("password") == "" || self.GetString("username") == beego.AppConfig.String("web_username") {
-			self.Data["json"] = map[string]interface{}{"status": 0, "msg": "please check your input"}
-			self.ServeJSON()
-			return
-		}
-		t := &file.Client{
-			Id:          int(file.GetDb().JsonDb.GetClientId()),
-			Status:      true,
-			Cnf:         &file.Config{},
-			WebUserName: self.GetString("username"),
-			WebPassword: self.GetString("password"),
-			Flow:        &file.Flow{},
-		}
-		if err := file.GetDb().NewClient(t); err != nil {
-			self.Data["json"] = map[string]interface{}{"status": 0, "msg": err.Error()}
-		} else {
-			self.Data["json"] = map[string]interface{}{"status": 1, "msg": "register success"}
-		}
-		self.ServeJSON()
-	}
-}
 
 func (self *LoginController) Out() {
 	self.SetSession("auth", false)
 	self.Redirect(beego.AppConfig.String("web_base_url")+"/login/index", 302)
 }
 
-func clearIprecord() {
+func (self *LoginController) clearIprecord() {
 	rand.Seed(time.Now().UnixNano())
 	x := rand.Intn(100)
 	if x == 1 {
