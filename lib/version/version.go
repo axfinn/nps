@@ -2,7 +2,7 @@
 package version
 
 // VERSION is the version of the current nps
-const VERSION = "0.26.44"
+const VERSION = "0.26.45"
 
 // LINK is the link of the current nps github
 const LINK = "https://github.com/ehang-io/nps"
