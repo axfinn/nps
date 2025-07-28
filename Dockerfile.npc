@@ -13,4 +13,4 @@ COPY --from=builder /go/src/ehang.io/nps/conf/npc.conf /conf/npc.conf
 VOLUME /conf
 EXPOSE 80
 ENTRYPOINT ["./npc"]
-CMD ["-config=/conf/npc.conf"]
+CMD ["-config", "/conf/npc.conf"]

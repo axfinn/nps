@@ -14,4 +14,4 @@ COPY --from=builder /go/src/ehang.io/nps/conf/nps.conf /conf/nps.conf
 VOLUME /conf
 EXPOSE 8024 8080 8443
 ENTRYPOINT ["./nps"]
-CMD ["-config=/conf/nps.conf"]
+CMD ["-conf_path=/conf"]
