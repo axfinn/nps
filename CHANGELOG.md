@@ -1,3 +1,10 @@
+## [0.26.45] - 2025-07-28
+
+### 修复
+
+- 修复Dockerfile中nps的配置参数问题，将-config改为-conf_path
+- 保持Dockerfile.npc中正确的-config参数
+
 ## [0.26.44] - 2025-07-28
 
 ### 新增
