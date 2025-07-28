@@ -190,14 +190,22 @@ func (s *Bridge) verifySuccess(c *conn.Conn) {
 }
 
 func (s *Bridge) cliProcess(c *conn.Conn) {
+	// 设置读取超时，避免长时间阻塞
+	c.SetReadDeadlineBySecond(10)
+	
 	//read test flag
 	if _, err := c.GetShortContent(3); err != nil {
-		logs.Info("The client %s connect error", c.Conn.RemoteAddr(), err.Error())
+		logs.Info("The client %s connect error: failed to read test flag - %s", c.Conn.RemoteAddr(), err.Error())
+		c.Close()
 		return
 	}
+	
+	// 重置读取超时
+	c.SetReadDeadlineBySecond(10)
+	
 	//version check
 	if b, err := c.GetShortLenContent(); err != nil {
-		logs.Info("The client %s version check error: %s", c.Conn.RemoteAddr(), err.Error())
+		logs.Info("The client %s version check error: failed to read version - %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	} else if string(b) != version.GetVersion() {
@@ -212,42 +220,62 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		}
 		logs.Info("The client %s version %s is compatible with server", c.Conn.RemoteAddr(), clientVersion)
 	}
+	
+	// 重置读取超时
+	c.SetReadDeadlineBySecond(10)
+	
 	//version get
 	var vs []byte
 	var err error
 	if vs, err = c.GetShortLenContent(); err != nil {
-		logs.Info("get client %s version error", err.Error())
+		logs.Info("get client %s version error: %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	}
+	
 	//write server version to client
-	c.Write([]byte(crypt.Md5(version.GetVersion())))
-	c.SetReadDeadlineBySecond(5)
+	if _, err := c.Write([]byte(crypt.Md5(version.GetVersion()))); err != nil {
+		logs.Info("Failed to write server version to client %s: %s", c.Conn.RemoteAddr(), err.Error())
+		c.Close()
+		return
+	}
+	
+	// 设置读取超时
+	c.SetReadDeadlineBySecond(10)
+	
 	var buf []byte
 	//get vKey from client
 	if buf, err = c.GetShortContent(32); err != nil {
+		logs.Info("Failed to read vKey from client %s: %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	}
+	
 	//verify
 	id, err := file.GetDb().GetIdByVerifyKey(string(buf), c.Conn.RemoteAddr().String())
 	if err != nil {
-		logs.Info("Current client connection validation error, close this client:", c.Conn.RemoteAddr())
+		logs.Info("Current client connection validation error, close this client: %s, vkey: %s, error: %s", 
+			c.Conn.RemoteAddr(), string(buf), err.Error())
 		s.verifyError(c)
 		return
 	} else {
 		s.verifySuccess(c)
 	}
+	
+	// 设置读取超时
+	c.SetReadDeadlineBySecond(10)
+	
 	if flag, err := c.ReadFlag(); err == nil {
 		s.typeDeal(flag, c, id, string(vs))
 	} else {
-		logs.Warn(err, flag)
+		logs.Warn("Failed to read flag from client %s: %s, flag: %s", c.Conn.RemoteAddr(), err.Error(), flag)
+		c.Close()
 	}
 	return
 }
 
 // isVersionCompatible checks if the client version is compatible with the server
-// For now, we simply check if client version >= minimum required version
+// For now, we simply check if client version is equal or greater than minimum required version
 func (s *Bridge) isVersionCompatible(clientVersion, minRequiredVersion string) bool {
 	// For simplicity, we assume version format is "x.y.z"
 	// In a more robust implementation, we would use proper version comparison

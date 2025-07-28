@@ -64,9 +64,11 @@
 	$.fn.cloudLang = function () {
 		// 处理web_base_url为空的情况
 		var baseUrl = window.nps.web_base_url || '';
+		// 添加时间戳以防止浏览器缓存
+		var timestamp = new Date().getTime();
 		$.ajax({
 			type: 'GET',
-			url: baseUrl + '/static/page/languages.xml?v=20250107',
+			url: baseUrl + '/static/page/languages.xml?v=' + timestamp,
 			dataType: 'xml',
 			success: function (xml) {
 				languages['content'] = xml2json($(xml).children())['content'];
@@ -85,45 +87,6 @@
 		});
 	};
 
-	$.fn.setLang = function (dom) {
-		languages['current'] = $('#languagemenu').attr('lang');
-		if ( dom == '' ) {
-			$('#languagemenu span').text(' ' + languages['menu'][languages['current']]);
-			if (languages['current'] != getCookie('lang')) setCookie('lang', languages['current']);
-			if($("#table").length>0) $('#table').bootstrapTable('refreshOptions', { 'locale': languages['current']});
-		}
-		$.each($(dom + ' [langtag]'), function (i, item) {
-			var index = $(item).attr('langtag');
-			string = languages['content'][index.toLowerCase()];
-			switch ($.type(string)) {
-				case 'string':
-					break;
-				case 'array':
-					string = string[Math.floor((Math.random()*string.length))];
-				case 'object':
-					string = (string[languages['current']] || string[languages['default']] || null);
-					break;
-				default:
-					string = 'Missing language string "' + index + '"';
-					$(item).css('background-color','#ffeeba');
-			}
-			if($.type($(item).attr('placeholder')) == 'undefined') {
-				$(item).text(string);
-			} else {
-				$(item).attr('placeholder', string);
-			}
-		});
-
-		if ( !$.isEmptyObject(chartdatas) ) {
-			setchartlang(languages['content']['charts'],chartdatas);
-			for(var key in chartdatas){
-				if ($('#'+key).length == 0) continue;
-				if($.type(chartdatas[key]) == 'object')
-				charts[key] = echarts.init(document.getElementById(key));
-				charts[key].setOption(chartdatas[key], true);
-			}
-		}
-	}
 
 })(jQuery);
 

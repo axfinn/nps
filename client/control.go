@@ -198,6 +198,7 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 	var err error
 	var connection net.Conn
 	var sess *kcp.UDPSession
+	
 	if tp == "tcp" {
 		if proxyUrl != "" {
 			u, er := url.Parse(proxyUrl)
@@ -222,25 +223,8 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 				}
 				connection, err = tls.Dial("tcp", server, conf)
 			} else {
-				connection, err = net.Dial("tcp", server)
+				connection, err = net.DialTimeout("tcp", server, time.Second*10)
 			}
-
-			//header := &proxyproto.Header{
-			//	Version:           1,
-			//	Command:           proxyproto.PROXY,
-			//	TransportProtocol: proxyproto.TCPv4,
-			//	SourceAddr: &net.TCPAddr{
-			//		IP:   net.ParseIP("10.1.1.1"),
-			//		Port: 1000,
-			//	},
-			//	DestinationAddr: &net.TCPAddr{
-			//		IP:   net.ParseIP("20.2.2.2"),
-			//		Port: 2000,
-			//	},
-			//}
-			//
-			//_, err = header.WriteTo(connection)
-			//_, err = io.WriteString(connection, "HELO")
 		}
 	} else {
 		sess, err = kcp.DialWithOptions(server, nil, 10, 3)
@@ -252,40 +236,70 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 	if err != nil {
 		return nil, err
 	}
+	
+	// 设置连接超时
 	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	defer connection.SetDeadline(time.Time{})
+	
 	c := conn.NewConn(connection)
 	if _, err := c.Write([]byte(common.CONN_TEST)); err != nil {
+		connection.Close()
 		return nil, err
 	}
+	
+	// 设置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	if err := c.WriteLenContent([]byte(version.GetVersion())); err != nil {
+		connection.Close()
 		return nil, err
 	}
+	
+	// 设置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	if err := c.WriteLenContent([]byte(version.VERSION)); err != nil {
+		connection.Close()
 		return nil, err
 	}
+	
+	// 设置读取超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	b, err := c.GetShortContent(32)
 	if err != nil {
-		logs.Error(err)
+		logs.Error("Failed to read server response: %s", err.Error())
+		connection.Close()
 		return nil, err
 	}
+	
 	if crypt.Md5(version.GetVersion()) != string(b) {
-		//logs.Error("The client does not match the server version. The current core version of the client is", version.GetVersion())
-		//return nil, err
+		logs.Warn("Server version hash mismatch for client %s", server)
 	}
+	
+	// 设置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	if _, err := c.Write([]byte(common.Getverifyval(vkey))); err != nil {
+		connection.Close()
 		return nil, err
 	}
+	
+	// 设置读取超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	if s, err := c.ReadFlag(); err != nil {
+		logs.Error("Failed to read verification flag from server %s: %s", server, err.Error())
+		connection.Close()
 		return nil, err
 	} else if s == common.VERIFY_EER {
+		connection.Close()
 		return nil, errors.New(fmt.Sprintf("Validation key %s incorrect", vkey))
 	}
+	
+	// 设置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
 	if _, err := c.Write([]byte(connType)); err != nil {
+		connection.Close()
 		return nil, err
 	}
+	
 	c.SetAlive(tp)
-
 	return c, nil
 }
 

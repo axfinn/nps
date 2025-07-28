@@ -13,6 +13,7 @@ import (
 	"ehang.io/nps/lib/file"
 	"ehang.io/nps/server/connection"
 	"github.com/astaxie/beego"
+	"github.com/astaxie/beego/context"
 	"github.com/astaxie/beego/logs"
 )
 
@@ -63,6 +64,15 @@ func (s *WebServer) Start() error {
 		<-stop
 	}
 	beego.BConfig.WebConfig.Session.SessionOn = true
+	
+	// 添加自定义静态文件处理器，用于处理缓存控制
+	beego.InsertFilter(beego.AppConfig.String("web_base_url")+"/static/page/*.xml", beego.BeforeStatic, func(ctx *context.Context) {
+		// 对XML文件禁用缓存
+		ctx.Output.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+		ctx.Output.Header("Pragma", "no-cache")
+		ctx.Output.Header("Expires", "0")
+	})
+	
 	beego.SetStaticPath(beego.AppConfig.String("web_base_url")+"/static", filepath.Join(common.GetRunPath(), "web", "static"))
 	beego.SetViewsPath(filepath.Join(common.GetRunPath(), "web", "views"))
 	err := errors.New("Web management startup failure ")
