@@ -8,6 +8,7 @@ set -e
 # 设置UTF-8编码以避免乱码问题
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
+export LC_CTYPE=en_US.UTF-8
 
 help() {
     echo "用法: $0 <new_version>"
@@ -109,7 +110,7 @@ echo "正在提交更改..."
 git add lib/version/version.go CHANGELOG.md
 
 # 提交更改，使用UTF-8编码安全的提交信息
-git -c i18n.commitEncoding=utf-8 -c i18n.logOutputEncoding=utf-8 commit -m "发布v$NEW_VERSION版本：更新版本号和变更日志"
+git -c i18n.commitEncoding=utf-8 commit -m "发布v$NEW_VERSION版本：更新版本号和变更日志"
 
 echo "正在创建并推送标签..."
 # 创建标签
