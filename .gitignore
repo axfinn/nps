@@ -36,4 +36,3 @@ nohup.out
 dist/
 downloads/
 web/static/downloads/
-release.sh
