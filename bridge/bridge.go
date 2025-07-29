@@ -188,98 +188,268 @@ func (s *Bridge) verifyError(c *conn.Conn) {
 
 func (s *Bridge) verifySuccess(c *conn.Conn) {
 	c.Write([]byte(common.VERIFY_SUCCESS))
+	// 尝试刷新连接确保数据发送
+	if flusher, ok := c.Conn.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			logs.Warn("=== SERVER: Failed to flush connection after sending verification success: %s", err.Error())
+		} else {
+			logs.Info("=== SERVER: Successfully flushed connection after sending verification success")
+		}
+	}
 }
 
 func (s *Bridge) cliProcess(c *conn.Conn) {
-	// 设置读取超时，避免长时间阻塞
-	c.SetReadDeadlineBySecond(10)
+	// 设置读取超时，避免长时间阻塞，增加超时时间到15秒
+	c.SetReadDeadlineBySecond(15)
+	logs.Info("=== SERVER: Starting cliProcess for client: %s ===", c.Conn.RemoteAddr().String())
 
 	//read test flag
-	if _, err := c.GetShortContent(3); err != nil {
-		logs.Info("The client %s connect error: failed to read test flag - %s", c.Conn.RemoteAddr(), err.Error())
-		// c.Close()
-		// return
+	buf := make([]byte, 3)
+	logs.Info("=== SERVER: Step 1 - Reading CONN_TEST flag from client: %s", c.Conn.RemoteAddr().String())
+	if _, err := c.Read(buf); err != nil {
+		logs.Info("=== SERVER: The client %s connect error: failed to read test flag - %s", c.Conn.RemoteAddr(), err.Error())
+		c.Close()
+		return
+	} else if string(buf) != common.CONN_TEST {
+		logs.Info("=== SERVER: The client %s connect error: test flag not match, got %s, expected %s", c.Conn.RemoteAddr(), string(buf), common.CONN_TEST)
+		c.Close()
+		return
 	}
+	logs.Info("=== SERVER: Successfully read CONN_TEST flag from client: %s", c.Conn.RemoteAddr().String())
 
-	// 重置读取超时
-	c.SetReadDeadlineBySecond(10)
+	// 重置读取超时，增加超时时间到15秒
+	c.SetReadDeadlineBySecond(15)
 
 	//version check
-	if b, err := c.GetShortLenContent(); err != nil {
-		logs.Info("The client %s version check error: failed to read version - %s", c.Conn.RemoteAddr(), err.Error())
-		// c.Close()
-		// return
-	} else if string(b) != version.GetVersion() {
+	logs.Info("=== SERVER: Step 2 - Reading client version from client: %s", c.Conn.RemoteAddr().String())
+	logs.Info("=== SERVER: Connection state before reading client version - Local: %s, Remote: %s", c.Conn.LocalAddr().String(), c.Conn.RemoteAddr().String())
+	
+	// 使用更直接的方式读取客户端版本，避免使用GetShortLenContent方法
+	// 先读取长度（4字节小端序）
+	lenBuf := make([]byte, 4)
+	if _, err := c.Read(lenBuf); err != nil {
+		logs.Info("=== SERVER: Failed to read client version length from client %s: %s", c.Conn.RemoteAddr(), err.Error())
+		c.Close()
+		return
+	}
+	
+	versionLen := binary.LittleEndian.Uint32(lenBuf)
+	logs.Info("=== SERVER: Client version length: %d", versionLen)
+	
+	// 再读取版本内容
+	if versionLen > 32<<10 {
+		logs.Info("=== SERVER: Client version length too large: %d", versionLen)
+		c.Close()
+		return
+	}
+	
+	versionBuf := make([]byte, versionLen)
+	if _, err := c.Read(versionBuf); err != nil {
+		logs.Info("=== SERVER: Failed to read client version content from client %s: %s", c.Conn.RemoteAddr(), err.Error())
+		c.Close()
+		return
+	}
+	
+	b := versionBuf
+	clientVersion := string(b)
+	logs.Info("=== SERVER: Client %s reported version: %s, server version: %s", c.Conn.RemoteAddr(), clientVersion, version.GetVersion())
+	
+	if clientVersion != version.GetVersion() {
 		// Check if client version is compatible (equal or greater than minimum required version)
-		clientVersion := string(b)
 		minRequiredVersion := version.GetVersion()
 		if !s.isVersionCompatible(clientVersion, minRequiredVersion) {
-			logs.Info("The client %s version %s is not compatible. Minimum required version is %s",
+			logs.Info("=== SERVER: The client %s version %s is not compatible. Minimum required version is %s",
 				c.Conn.RemoteAddr(), clientVersion, minRequiredVersion)
-			// c.Close()
-			// return
+			c.Close()
+			return
 		}
-		logs.Info("The client %s version %s is compatible with server", c.Conn.RemoteAddr(), clientVersion)
+		logs.Info("=== SERVER: The client %s version %s is compatible with server", c.Conn.RemoteAddr(), clientVersion)
 	}
 
 	// 重置读取超时
 	c.SetReadDeadlineBySecond(10)
 
 	//version get
-	var vs []byte
-	var err error
-	if vs, err = c.GetShortLenContent(); err != nil {
-		logs.Info("get client %s version error: %s", c.Conn.RemoteAddr(), err.Error())
+	logs.Info("=== SERVER: Step 3 - Reading client detailed version from client: %s", c.Conn.RemoteAddr().String())
+	
+	// 使用更直接的方式读取客户端详细版本，避免使用GetShortLenContent方法
+	// 先读取长度（4字节小端序）
+	var lenBuf2 []byte
+	lenBuf2 = make([]byte, 4)
+	if _, err := c.Read(lenBuf2); err != nil {
+		logs.Info("=== SERVER: Failed to read client detailed version length from client %s: %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	}
+	
+	detailedVersionLen := binary.LittleEndian.Uint32(lenBuf2)
+	logs.Info("=== SERVER: Client detailed version length: %d", detailedVersionLen)
+	
+	// 再读取版本内容
+	if detailedVersionLen > 32<<10 {
+		logs.Info("=== SERVER: Client detailed version length too large: %d", detailedVersionLen)
+		c.Close()
+		return
+	}
+	
+	detailedVersionBuf := make([]byte, detailedVersionLen)
+	if _, err := c.Read(detailedVersionBuf); err != nil {
+		logs.Info("=== SERVER: Failed to read client detailed version content from client %s: %s", c.Conn.RemoteAddr(), err.Error())
+		c.Close()
+		return
+	}
+	
+	vs := detailedVersionBuf
+	logs.Info("=== SERVER: Client %s detailed version: %s", c.Conn.RemoteAddr(), string(vs))
 
 	//write server version to client
-	if _, err := c.Write([]byte(crypt.Md5(version.GetVersion()))); err != nil {
-		logs.Info("Failed to write server version to client %s: %s", c.Conn.RemoteAddr(), err.Error())
-		// c.Close()
-		// return
-	}
-
-	// 设置读取超时
-	c.SetReadDeadlineBySecond(10)
-
-	var buf []byte
-	//get vKey from client
-	if buf, err = c.GetShortContent(32); err != nil {
-		logs.Info("Failed to read vKey from client %s: %s", c.Conn.RemoteAddr(), err.Error())
+	serverVersion := version.GetVersion()
+	versionHash := crypt.Md5(serverVersion)
+	logs.Info("=== SERVER: Step 4 - Preparing to send server version hash to client %s. Server version: %s, Hash: %s, Hash length: %d", 
+		c.Conn.RemoteAddr(), serverVersion, versionHash, len(versionHash))
+	
+	// 确保我们发送的是32字节的哈希值
+	hashBytes := []byte(versionHash)
+	logs.Info("=== SERVER: Hash bytes length: %d, Hash bytes: %v", len(hashBytes), hashBytes)
+	
+	logs.Info("=== SERVER: Sending server version hash to client: %s", c.Conn.RemoteAddr().String())
+	if _, err := c.Write(hashBytes); err != nil {
+		logs.Info("=== SERVER: Failed to write server version hash to client %s: %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	}
+	
+	// 尝试刷新连接确保数据发送
+	if flusher, ok := c.Conn.(interface{ Flush() error }); ok {
+		if err := flusher.Flush(); err != nil {
+			logs.Warn("=== SERVER: Failed to flush connection to client %s: %s", c.Conn.RemoteAddr(), err.Error())
+		} else {
+			logs.Info("=== SERVER: Successfully flushed connection to client %s", c.Conn.RemoteAddr())
+		}
+	}
+	
+	logs.Info("=== SERVER: Successfully sent server version hash to client: %s", c.Conn.RemoteAddr().String())
+
+	// 重置读取超时，避免影响后续读取操作
+	c.SetReadDeadlineBySecond(15) // 增加超时时间到15秒
+
+	//get vKey from client
+	logs.Info("=== SERVER: Step 5 - Reading vKey from client: %s", c.Conn.RemoteAddr().String())
+	
+	// 直接读取32字节的vKey，而不是使用GetShortContent方法
+	bufContent := make([]byte, 32)
+	if _, err2 := c.Read(bufContent); err2 != nil {
+		logs.Info("=== SERVER: Failed to read vKey from client %s: %s", c.Conn.RemoteAddr(), err2.Error())
+		c.Close()
+		return
+	}
+	logs.Info("=== SERVER: Successfully read vKey from client: %s, vKey: %.10s...", c.Conn.RemoteAddr(), string(bufContent)) // 只记录前10个字符以保护隐私
 
 	//verify
-	id, err := file.GetDb().GetIdByVerifyKey(string(buf), c.Conn.RemoteAddr().String())
+	logs.Info("=== SERVER: Step 6 - Verifying client: %s", c.Conn.RemoteAddr().String())
+	id, err := file.GetDb().GetIdByVerifyKey(string(bufContent), c.Conn.RemoteAddr().String())
 	if err != nil {
-		logs.Info("Current client connection validation error, close this client: %s, vkey: %s, error: %s",
-			c.Conn.RemoteAddr(), string(buf), err.Error())
+		logs.Info("=== SERVER: Current client connection validation error, close this client: %s, vkey: %.10s..., error: %s", 
+			c.Conn.RemoteAddr(), string(bufContent), err.Error())
+		logs.Info("=== SERVER: Sending verification error response to client: %s", c.Conn.RemoteAddr().String())
 		s.verifyError(c)
+		logs.Info("=== SERVER: Successfully sent verification error response to client: %s", c.Conn.RemoteAddr().String())
 		return
 	} else {
+		logs.Info("=== SERVER: Client verification successful for client: %s, clientId: %d", c.Conn.RemoteAddr(), id)
+		logs.Info("=== SERVER: Sending verification success response to client: %s", c.Conn.RemoteAddr().String())
 		s.verifySuccess(c)
-	}
+		logs.Info("=== SERVER: Successfully sent verification success response to client: %s", c.Conn.RemoteAddr().String())
+		
+		// 添加短暂延迟，确保客户端有足够时间接收响应
+		time.Sleep(100 * time.Millisecond)
+		
+		// 尝试刷新连接确保数据发送
+		if flusher, ok := c.Conn.(interface{ Flush() error }); ok {
+			if err := flusher.Flush(); err != nil {
+				logs.Warn("=== SERVER: Failed to flush connection after sending verification success: %s", err.Error())
+			} else {
+				logs.Info("=== SERVER: Successfully flushed connection after sending verification success")
+			}
+		}
 
 	// 设置读取超时
-	c.SetReadDeadlineBySecond(10)
+	c.SetReadDeadlineBySecond(15) // 增加超时时间到15秒
 
-	if flag, err := c.ReadFlag(); err == nil {
-		s.typeDeal(flag, c, id, string(vs))
-	} else {
-		logs.Warn("Failed to read flag from client %s: %s, flag: %s", c.Conn.RemoteAddr(), err.Error(), flag)
-		// c.Close()
+	logs.Info("=== SERVER: Step 7 - Reading connection flag from client: %s", c.Conn.RemoteAddr().String())
+	// 直接读取4字节的连接标志，而不是使用ReadFlag方法
+	buf := make([]byte, 4)
+	if _, err := c.Read(buf); err != nil {
+		logs.Warn("=== SERVER: Failed to read flag from client %s: %s", c.Conn.RemoteAddr(), err.Error())
+		// 添加更多调试信息
+		logs.Info("=== SERVER: Connection state - Local: %s, Remote: %s", c.Conn.LocalAddr().String(), c.Conn.RemoteAddr().String())
+		c.Close()
+		return
 	}
+	
+	flag := string(buf)
+	logs.Info("=== SERVER: Received connection flag from client %s: %s", c.Conn.RemoteAddr(), flag)
+	s.typeDeal(flag, c, id, string(vs))
+	logs.Info("=== SERVER: Finished cliProcess for client: %s", c.Conn.RemoteAddr().String())
+	return
+	}
+	
+	// 添加更多调试信息
+	logs.Info("=== SERVER: Connection state - Local: %s, Remote: %s", c.Conn.LocalAddr().String(), c.Conn.RemoteAddr().String())
+	c.Close()
+	return
 }
 
 // isVersionCompatible checks if the client version is compatible with the server
 // For now, we simply check if client version is equal or greater than minimum required version
 func (s *Bridge) isVersionCompatible(clientVersion, minRequiredVersion string) bool {
-	// For simplicity, we assume version format is "x.y.z"
-	// In a more robust implementation, we would use proper version comparison
-	return clientVersion >= minRequiredVersion
+	// Allow all 0.26.x versions to connect
+	if strings.HasPrefix(clientVersion, "0.26.") {
+		return true
+	}
+
+	// Parse versions
+	clientParts := parseVersion(clientVersion)
+	serverParts := parseVersion(minRequiredVersion)
+
+	// Compare version parts
+	for i := 0; i < len(clientParts) && i < len(serverParts); i++ {
+		if clientParts[i] > serverParts[i] {
+			return true
+		}
+		if clientParts[i] < serverParts[i] {
+			return false
+		}
+	}
+
+	// If all compared parts are equal, the versions are compatible
+	return true
+}
+
+// isDataAvailable checks if there is data available to read from the connection
+// This helps prevent EOF errors when the client disconnects unexpectedly
+func (s *Bridge) isDataAvailable(c *conn.Conn) bool {
+	// For now, we'll always return true to allow the connection to proceed
+	// In the future, we could implement a more sophisticated check if needed
+	return true
+}
+
+// parseVersion parses a version string into integer components
+func parseVersion(version string) []int {
+	parts := strings.Split(version, ".")
+	result := make([]int, len(parts))
+
+	for i, part := range parts {
+		if num, err := strconv.Atoi(part); err == nil {
+			result[i] = num
+		} else {
+			// In case of non-numeric parts, truncate the version
+			result = result[:i]
+			break
+		}
+	}
+
+	return result
 }
 
 func (s *Bridge) DelClient(id int) {

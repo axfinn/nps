@@ -242,64 +242,142 @@ func NewConn(tp string, vkey string, server string, connType string, proxyUrl st
 	defer connection.SetDeadline(time.Time{})
 	
 	c := conn.NewConn(connection)
+	logs.Info("=== CLIENT: Starting handshake process with server: %s ===", server)
+	
+	// 重置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 10))
+	logs.Info("=== CLIENT: Step 1 - Sending CONN_TEST flag to server: %s", common.CONN_TEST)
 	if _, err := c.Write([]byte(common.CONN_TEST)); err != nil {
+		logs.Error("=== CLIENT: Failed to send CONN_TEST flag to server: %s", err.Error())
+		connection.Close()
+		return nil, err
+	}
+	logs.Info("=== CLIENT: Successfully sent CONN_TEST flag to server")
+	logs.Info("=== CLIENT: Step 2 - Sending client version: %s", version.GetVersion())
+	clientVersionBytes := []byte(version.GetVersion())
+	logs.Info("=== CLIENT: Client version bytes length: %d, content: %s", len(clientVersionBytes), string(clientVersionBytes))
+	
+	// 使用更直接的方式发送版本信息，避免使用WriteLenContent方法
+	// 先发送长度（4字节小端序）
+	versionLen := make([]byte, 4)
+	binary.LittleEndian.PutUint32(versionLen, uint32(len(clientVersionBytes)))
+	if _, err := c.Write(versionLen); err != nil {
+		logs.Error("=== CLIENT: Failed to send client version length to server: %s", err.Error())
 		connection.Close()
 		return nil, err
 	}
 	
-	// 设置写入超时
-	connection.SetDeadline(time.Now().Add(time.Second * 10))
-	if err := c.WriteLenContent([]byte(version.GetVersion())); err != nil {
+	// 再发送版本内容
+	if _, err := c.Write(clientVersionBytes); err != nil {
+		logs.Error("=== CLIENT: Failed to send client version to server: %s", err.Error())
+		connection.Close()
+		return nil, err
+	}
+	logs.Info("=== CLIENT: Successfully sent client version to server")
+	
+	// 重置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 15)) // 增加超时时间到15秒
+	logs.Info("=== CLIENT: Step 3 - Sending server version: %s", version.VERSION)
+	serverVersionBytes := []byte(version.VERSION)
+	logs.Info("=== CLIENT: Server version bytes length: %d, content: %s", len(serverVersionBytes), string(serverVersionBytes))
+	
+	// 使用更直接的方式发送服务端版本信息，避免使用WriteLenContent方法
+	// 先发送长度（4字节小端序）
+	serverVersionLen := make([]byte, 4)
+	binary.LittleEndian.PutUint32(serverVersionLen, uint32(len(serverVersionBytes)))
+	if _, err := c.Write(serverVersionLen); err != nil {
+		logs.Error("=== CLIENT: Failed to send server version length to server: %s", err.Error())
 		connection.Close()
 		return nil, err
 	}
 	
-	// 设置写入超时
-	connection.SetDeadline(time.Now().Add(time.Second * 10))
-	if err := c.WriteLenContent([]byte(version.VERSION)); err != nil {
+	// 再发送版本内容
+	if _, err := c.Write(serverVersionBytes); err != nil {
+		logs.Error("=== CLIENT: Failed to send server version to server: %s", err.Error())
 		connection.Close()
 		return nil, err
 	}
+	logs.Info("=== CLIENT: Successfully sent server version to server")
 	
-	// 设置读取超时
+	// 重置读取超时
 	connection.SetDeadline(time.Now().Add(time.Second * 10))
-	b, err := c.GetShortContent(32)
+	logs.Info("=== CLIENT: Step 4 - Waiting for server version hash response")
+	// b, err := c.GetShortContent(32)
+	// 修复：直接读取32个字节，而不是使用GetShortContent方法
+	b := make([]byte, 32)
+	logs.Info("=== CLIENT: Attempting to read 32 bytes for server version hash")
+	n, err := c.Read(b)
+	logs.Info("=== CLIENT: Read operation completed. Bytes read: %d, Error: %v", n, err)
 	if err != nil {
-		logs.Error("Failed to read server response: %s", err.Error())
+		logs.Error("=== CLIENT: Failed to read server response: %s", err.Error())
 		connection.Close()
 		return nil, err
 	}
+	logs.Info("=== CLIENT: Successfully received server version hash: %s", string(b))
 	
 	if crypt.Md5(version.GetVersion()) != string(b) {
-		logs.Warn("Server version hash mismatch for client %s", server)
+		logs.Warn("=== CLIENT: Server version hash mismatch for client %s, expected: %s, got: %s", server, crypt.Md5(version.GetVersion()), string(b))
 	}
 	
-	// 设置写入超时
-	connection.SetDeadline(time.Now().Add(time.Second * 10))
-	if _, err := c.Write([]byte(common.Getverifyval(vkey))); err != nil {
+	// 重置写入超时
+	connection.SetDeadline(time.Now().Add(time.Second * 15)) // 增加超时时间到15秒
+	logs.Info("=== CLIENT: Step 5 - Sending verification key")
+	vkeyBytes := []byte(common.Getverifyval(vkey))
+	logs.Info("=== CLIENT: Verification key bytes length: %d", len(vkeyBytes))
+	
+	// 在发送前记录连接状态
+	logs.Info("=== CLIENT: Connection state before sending verification key - Local: %s, Remote: %s", connection.LocalAddr().String(), connection.RemoteAddr().String())
+	if _, err := c.Write(vkeyBytes); err != nil {
+		logs.Error("=== CLIENT: Failed to send verification key to server: %s", err.Error())
+		connection.Close()
+		return nil, err
+	}
+	logs.Info("=== CLIENT: Successfully sent verification key to server")
+	
+	// 增加短暂延迟，确保服务端有足够时间处理并发送响应
+	time.Sleep(100 * time.Millisecond)
+	
+	// 重置读取超时
+	connection.SetDeadline(time.Now().Add(time.Second * 15)) // 增加超时时间到15秒
+	logs.Info("=== CLIENT: Step 6 - Waiting for server verification response")
+	
+	// 记录连接状态
+	logs.Info("=== CLIENT: Connection state before reading verification response - Local: %s, Remote: %s", connection.LocalAddr().String(), connection.RemoteAddr().String())
+	
+	// 直接读取4字节的响应标志，而不是使用ReadFlag方法
+	buf := make([]byte, 4)
+	if _, err := c.Read(buf); err != nil {
+		logs.Error("=== CLIENT: Failed to read server verification response: %s", err.Error())
 		connection.Close()
 		return nil, err
 	}
 	
-	// 设置读取超时
-	connection.SetDeadline(time.Now().Add(time.Second * 10))
-	if s, err := c.ReadFlag(); err != nil {
-		logs.Error("Failed to read verification flag from server %s: %s", server, err.Error())
+	s := string(buf)
+	if s == common.VERIFY_EER {
+		err := errors.New(fmt.Sprintf("Validation key %s incorrect", vkey))
+		logs.Error("=== CLIENT: Server verification failed: %s", err.Error())
 		connection.Close()
 		return nil, err
-	} else if s == common.VERIFY_EER {
-		connection.Close()
-		return nil, errors.New(fmt.Sprintf("Validation key %s incorrect", vkey))
 	}
+	logs.Info("=== CLIENT: Server verification successful")
 	
-	// 设置写入超时
-	connection.SetDeadline(time.Now().Add(time.Second * 10))
+	// 立即重置写入超时，确保能及时发送连接类型标志
+	connection.SetDeadline(time.Now().Add(time.Second * 15)) // 增加超时时间到15秒
+	logs.Info("=== CLIENT: Step 7 - Sending connection type: %s", connType)
+	
+	// 在发送前记录连接状态
+	logs.Info("=== CLIENT: Connection state before sending connection type - Local: %s, Remote: %s", connection.LocalAddr().String(), connection.RemoteAddr().String())
 	if _, err := c.Write([]byte(connType)); err != nil {
+		logs.Error("=== CLIENT: Failed to send connection type to server: %s", err.Error())
 		connection.Close()
 		return nil, err
 	}
+	logs.Info("=== CLIENT: Successfully sent connection type to server")
+	logs.Info("=== CLIENT: Connection state after sending connection type - Local: %s, Remote: %s", connection.LocalAddr().String(), connection.RemoteAddr().String())
 	
 	c.SetAlive(tp)
+	
+	logs.Info("=== CLIENT: Handshake completed successfully")
 	return c, nil
 }
 
