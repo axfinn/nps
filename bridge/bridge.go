@@ -208,7 +208,7 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 	if b, err := c.GetShortLenContent(); err != nil {
 		logs.Info("The client %s version check error: failed to read version - %s", c.Conn.RemoteAddr(), err.Error())
 		// c.Close()
-		return
+		// return
 	} else if string(b) != version.GetVersion() {
 		// Check if client version is compatible (equal or greater than minimum required version)
 		clientVersion := string(b)
