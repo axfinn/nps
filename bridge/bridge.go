@@ -237,8 +237,8 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 	//write server version to client
 	if _, err := c.Write([]byte(crypt.Md5(version.GetVersion()))); err != nil {
 		logs.Info("Failed to write server version to client %s: %s", c.Conn.RemoteAddr(), err.Error())
-		c.Close()
-		return
+		// c.Close()
+		// return
 	}
 
 	// 设置读取超时
@@ -270,9 +270,8 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		s.typeDeal(flag, c, id, string(vs))
 	} else {
 		logs.Warn("Failed to read flag from client %s: %s, flag: %s", c.Conn.RemoteAddr(), err.Error(), flag)
-		c.Close()
+		// c.Close()
 	}
-	return
 }
 
 // isVersionCompatible checks if the client version is compatible with the server
