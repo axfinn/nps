@@ -3,7 +3,6 @@ package bridge
 import (
 	"crypto/tls"
 	_ "crypto/tls"
-	"ehang.io/nps/lib/nps_mux"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ehang.io/nps/lib/nps_mux"
 
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/conn"
@@ -192,38 +193,38 @@ func (s *Bridge) verifySuccess(c *conn.Conn) {
 func (s *Bridge) cliProcess(c *conn.Conn) {
 	// 设置读取超时，避免长时间阻塞
 	c.SetReadDeadlineBySecond(10)
-	
+
 	//read test flag
 	if _, err := c.GetShortContent(3); err != nil {
 		logs.Info("The client %s connect error: failed to read test flag - %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	}
-	
+
 	// 重置读取超时
 	c.SetReadDeadlineBySecond(10)
-	
+
 	//version check
 	if b, err := c.GetShortLenContent(); err != nil {
 		logs.Info("The client %s version check error: failed to read version - %s", c.Conn.RemoteAddr(), err.Error())
-		c.Close()
+		// c.Close()
 		return
 	} else if string(b) != version.GetVersion() {
 		// Check if client version is compatible (equal or greater than minimum required version)
 		clientVersion := string(b)
 		minRequiredVersion := version.GetVersion()
 		if !s.isVersionCompatible(clientVersion, minRequiredVersion) {
-			logs.Info("The client %s version %s is not compatible. Minimum required version is %s", 
+			logs.Info("The client %s version %s is not compatible. Minimum required version is %s",
 				c.Conn.RemoteAddr(), clientVersion, minRequiredVersion)
-			c.Close()
-			return
+			// c.Close()
+			// return
 		}
 		logs.Info("The client %s version %s is compatible with server", c.Conn.RemoteAddr(), clientVersion)
 	}
-	
+
 	// 重置读取超时
 	c.SetReadDeadlineBySecond(10)
-	
+
 	//version get
 	var vs []byte
 	var err error
@@ -232,17 +233,17 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		c.Close()
 		return
 	}
-	
+
 	//write server version to client
 	if _, err := c.Write([]byte(crypt.Md5(version.GetVersion()))); err != nil {
 		logs.Info("Failed to write server version to client %s: %s", c.Conn.RemoteAddr(), err.Error())
 		c.Close()
 		return
 	}
-	
+
 	// 设置读取超时
 	c.SetReadDeadlineBySecond(10)
-	
+
 	var buf []byte
 	//get vKey from client
 	if buf, err = c.GetShortContent(32); err != nil {
@@ -250,21 +251,21 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 		c.Close()
 		return
 	}
-	
+
 	//verify
 	id, err := file.GetDb().GetIdByVerifyKey(string(buf), c.Conn.RemoteAddr().String())
 	if err != nil {
-		logs.Info("Current client connection validation error, close this client: %s, vkey: %s, error: %s", 
+		logs.Info("Current client connection validation error, close this client: %s, vkey: %s, error: %s",
 			c.Conn.RemoteAddr(), string(buf), err.Error())
 		s.verifyError(c)
 		return
 	} else {
 		s.verifySuccess(c)
 	}
-	
+
 	// 设置读取超时
 	c.SetReadDeadlineBySecond(10)
-	
+
 	if flag, err := c.ReadFlag(); err == nil {
 		s.typeDeal(flag, c, id, string(vs))
 	} else {
@@ -396,7 +397,7 @@ func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, t *file.Tunnel) (ta
 		return nil, errors.New("client not found")
 	}
 	c := client.(*Client)
-	
+
 	// IP验证
 	if s.ipVerify {
 		ip := common.GetIpByAddr(link.RemoteAddr)
@@ -408,7 +409,7 @@ func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, t *file.Tunnel) (ta
 			return nil, fmt.Errorf("the validity of the ip %s has expired", ip)
 		}
 	}
-	
+
 	// 获取隧道
 	var tunnel *nps_mux.Mux
 	if t != nil && t.Mode == "file" {
@@ -416,31 +417,31 @@ func (s *Bridge) SendLinkInfo(clientId int, link *conn.Link, t *file.Tunnel) (ta
 	} else {
 		tunnel = c.tunnel
 	}
-	
+
 	if tunnel == nil {
 		return nil, errors.New("the client connect error")
 	}
-	
+
 	// 创建新连接
 	target, err = tunnel.NewConn()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// 如果是文件模式，不需要加密和压缩
 	if t != nil && t.Mode == "file" {
 		link.Crypt = false
 		link.Compress = false
 		return target, nil
 	}
-	
+
 	// 发送连接信息
 	connWrapper := conn.NewConn(target)
 	if _, err := connWrapper.SendInfo(link, ""); err != nil {
 		target.Close()
 		return nil, fmt.Errorf("failed to send info: %v", err)
 	}
-	
+
 	return target, nil
 }
 
