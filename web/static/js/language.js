@@ -102,6 +102,46 @@
 		});
 	};
 
+	$.fn.setLang = function (dom) {
+		languages['current'] = $('#languagemenu').attr('lang');
+		if ( dom == '' ) {
+			$('#languagemenu span').text(' ' + languages['menu'][languages['current']]);
+			if (languages['current'] != getCookie('lang')) setCookie('lang', languages['current']);
+			if($("#table").length>0) $('#table').bootstrapTable('refreshOptions', { 'locale': languages['current']});
+		}
+		$.each($(dom + ' [langtag]'), function (i, item) {
+			var index = $(item).attr('langtag');
+			var string = languages['content'][index.toLowerCase()];
+			switch ($.type(string)) {
+				case 'string':
+					break;
+				case 'array':
+					string = string[Math.floor((Math.random()*string.length))];
+					break;
+				case 'object':
+					string = (string[languages['current']] || string[languages['default']] || null);
+					break;
+				default:
+					string = 'Missing language string "' + index + '"';
+					$(item).css('background-color','#ffeeba');
+			}
+			if($.type($(item).attr('placeholder')) == 'undefined') {
+				$(item).text(string);
+			} else {
+				$(item).attr('placeholder', string);
+			}
+		});
+
+		if ( !$.isEmptyObject(chartdatas) ) {
+			setchartlang(languages['content']['charts'],chartdatas);
+			for(var key in chartdatas){
+				if ($('#'+key).length == 0) continue;
+				if($.type(chartdatas[key]) == 'object')
+				charts[key] = echarts.init(document.getElementById(key));
+				charts[key].setOption(chartdatas[key], true);
+			}
+		}
+	}
 
 })(jQuery);
 
@@ -112,11 +152,20 @@ $(document).ready(function () {
 		if ($.fn.setLang) {
 			$('body').setLang ('');
 		} else {
-			// 如果 setLang 函数未定义，则直接设置默认文字
+			// 如果 setLang 函数未定义，则直接设置默认文字并手动处理语言切换
 			$('[langtag]').each(function() {
 				var tag = $(this).attr('langtag');
 				$(this).text(tag);
 			});
+			// 设置语言Cookie
+			var path = window.nps.web_base_url || '';
+			if (path === '') {
+				path = '/';
+			}
+			document.cookie = 'lang=' + $(this).attr('lang') + '; path=' + path + ';';
+			// 更新语言菜单显示
+			var langText = $(this).find('a').text();
+			$('#languagemenu span').text(' ' + langText);
 		}
 	});
 });
