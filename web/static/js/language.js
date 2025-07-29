@@ -84,7 +84,20 @@
 				$('#languagemenu').attr('lang',(languages['current'] || languages['default']));
 				if ($.fn.setLang) {
 					$('body').setLang ('');
+				} else {
+					// 如果 setLang 函数未定义，则直接设置默认文字
+					$('[langtag]').each(function() {
+						var tag = $(this).attr('langtag');
+						$(this).text(tag);
+					});
 				}
+			},
+			error: function(xhr, status, error) {
+				// 当语言文件加载失败时，显示默认文字
+				$('[langtag]').each(function() {
+					var tag = $(this).attr('langtag');
+					$(this).text(tag);
+				});
 			}
 		});
 	};
@@ -98,6 +111,12 @@ $(document).ready(function () {
 		$('#languagemenu').attr('lang',$(this).attr('lang'));
 		if ($.fn.setLang) {
 			$('body').setLang ('');
+		} else {
+			// 如果 setLang 函数未定义，则直接设置默认文字
+			$('[langtag]').each(function() {
+				var tag = $(this).attr('langtag');
+				$(this).text(tag);
+			});
 		}
 	});
 });
