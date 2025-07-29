@@ -197,8 +197,8 @@ func (s *Bridge) cliProcess(c *conn.Conn) {
 	//read test flag
 	if _, err := c.GetShortContent(3); err != nil {
 		logs.Info("The client %s connect error: failed to read test flag - %s", c.Conn.RemoteAddr(), err.Error())
-		c.Close()
-		return
+		// c.Close()
+		// return
 	}
 
 	// 重置读取超时
