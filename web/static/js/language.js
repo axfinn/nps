@@ -82,7 +82,9 @@
 					if ( key == languages['navigator'] ) languages['current'] = key;
 				}
 				$('#languagemenu').attr('lang',(languages['current'] || languages['default']));
-				$('body').setLang ('');
+				if ($.fn.setLang) {
+					$('body').setLang ('');
+				}
 			}
 		});
 	};
@@ -94,7 +96,9 @@ $(document).ready(function () {
 	$('body').cloudLang();
 	$('body').on('click','li[lang]',function(){
 		$('#languagemenu').attr('lang',$(this).attr('lang'));
-		$('body').setLang ('');
+		if ($.fn.setLang) {
+			$('body').setLang ('');
+		}
 	});
 });
 
