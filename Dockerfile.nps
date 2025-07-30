@@ -2,14 +2,43 @@ FROM golang:1.22 as builder
 ARG GOPROXY=direct
 WORKDIR /go/src/ehang.io/nps
 COPY . .
+
+# 构建nps服务端
 RUN go get -d -v ./...
 RUN CGO_ENABLED=0 go build -ldflags="-w -s -extldflags -static" ./cmd/nps/nps.go
+
+# 构建常用的npc客户端
+RUN mkdir -p /tmp/downloads /tmp/web/static/downloads
+
+# Linux客户端
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/linux_amd64/npc ./cmd/npc/npc.go && \
+    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/linux_amd64/ && \
+    tar -czvf /tmp/web/static/downloads/linux_amd64_client.tar.gz -C /tmp/downloads/linux_amd64 .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/linux_arm64/npc ./cmd/npc/npc.go && \
+    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/linux_arm64/ && \
+    tar -czvf /tmp/web/static/downloads/linux_arm64_client.tar.gz -C /tmp/downloads/linux_arm64 .
+
+# Windows客户端
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/windows_amd64/npc.exe ./cmd/npc/npc.go && \
+    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/windows_amd64/ && \
+    zip -j /tmp/web/static/downloads/windows_amd64_client.zip /tmp/downloads/windows_amd64/npc.exe /tmp/downloads/windows_amd64/npc.conf /tmp/downloads/windows_amd64/multi_account.conf
+
+# macOS客户端
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/darwin_amd64/npc ./cmd/npc/npc.go && \
+    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/darwin_amd64/ && \
+    tar -czvf /tmp/web/static/downloads/darwin_amd64_client.tar.gz -C /tmp/downloads/darwin_amd64 .
+
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/darwin_arm64/npc ./cmd/npc/npc.go && \
+    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/darwin_arm64/ && \
+    tar -czvf /tmp/web/static/downloads/darwin_arm64_client.tar.gz -C /tmp/downloads/darwin_arm64 .
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /
 COPY --from=builder /go/src/ehang.io/nps/nps .
 COPY --from=builder /go/src/ehang.io/nps/web /web
+COPY --from=builder /tmp/web/static/downloads /web/static/downloads
 COPY --from=builder /go/src/ehang.io/nps/conf/nps.conf /conf/nps.conf
 VOLUME /conf
 EXPOSE 8024 8080 8443
