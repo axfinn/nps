@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NPC 客户端</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; min-height: 100vh; padding: 20px; }
+        .container { max-width: 700px; margin: 0 auto; }
+        .card { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px; }
+        .card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 12px; }
+        h1 { font-size: 24px; margin-bottom: 8px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .version { color: #666; font-size: 14px; }
+        .status-row { display: flex; gap: 12px; margin-bottom: 20px; }
+        .status-item { flex: 1; background: #f8f9fa; padding: 12px 16px; border-radius: 8px; }
+        .status-label { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .status-value { font-size: 14px; font-weight: 500; }
+        .status-value.running { color: #28a745; }
+        .status-value.stopped { color: #dc3545; }
+        .status-value.not_installed { color: #6c757d; }
+        .form-group { margin-bottom: 16px; }
+        .form-row { display: flex; gap: 16px; }
+        .form-row .form-group { flex: 1; }
+        label { display: block; margin-bottom: 6px; font-weight: 500; color: #333; font-size: 14px; }
+        input[type="text"], input[type="number"], select { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+        input:focus, select:focus { outline: none; border-color: #007bff; box-shadow: 0 0 0 3px rgba(0,123,255,0.1); }
+        .checkbox-group { display: flex; align-items: center; gap: 8px; }
+        .checkbox-group input { width: auto; }
+        .checkbox-group label { margin-bottom: 0; font-weight: normal; }
+        .radio-group { display: flex; gap: 20px; }
+        .radio-group label { display: flex; align-items: center; gap: 6px; font-weight: normal; cursor: pointer; }
+        .btn-row { display: flex; gap: 12px; margin-top: 20px; }
+        .btn { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #218838; }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-secondary:hover { background: #545b62; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-sm { padding: 8px 16px; font-size: 13px; flex: none; }
+        .logs { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; font-family: "SF Mono", Monaco, monospace; font-size: 12px; height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+        .logs::-webkit-scrollbar { width: 8px; }
+        .logs::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .alert-info { background: #d1ecf1; color: #0c5460; }
+        .alert-warning { background: #fff3cd; color: #856404; }
+        .service-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="header">
+                <h1>NPC 内网穿透客户端</h1>
+                <span class="version">v<span id="version">-</span></span>
+            </div>
+
+            <div class="status-row">
+                <div class="status-item">
+                    <div class="status-label">当前状态</div>
+                    <div id="runStatus" class="status-value stopped">已停止</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">系统服务</div>
+                    <div id="svcStatus" class="status-value not_installed">未安装</div>
+                </div>
+            </div>
+
+            <div class="btn-row">
+                <button id="btnStart" class="btn btn-success" onclick="startClient()">启动连接</button>
+                <button id="btnStop" class="btn btn-danger" style="display:none" onclick="stopClient()">停止连接</button>
+                <button class="btn btn-primary" onclick="saveConfig()">保存配置</button>
+                <button class="btn btn-secondary" onclick="clearConfig()">清除配置</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">连接配置</div>
+            <div class="alert alert-info" style="font-size: 13px; margin-bottom: 16px;">
+                <strong>配置说明：</strong>
+                <ol style="margin: 8px 0 0 0; padding-left: 20px; line-height: 1.6;">
+                    <li>在 NPS 服务端 Web 管理界面创建客户端</li>
+                    <li>复制服务端地址（IP:端口）和客户端的 Vkey</li>
+                    <li>在下方填写配置并点击"保存配置"</li>
+                    <li>点击"启动连接"即可使用</li>
+                </ol>
+                <div style="margin-top: 8px; padding: 6px 8px; background: #fff3cd; border-radius: 4px; font-size: 12px;">
+                    💡 提示：如果下方已自动填充配置，说明读取了上次保存的配置
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>服务器地址 *</label>
+                    <input type="text" id="server" placeholder="例如: 1.2.3.4:8024">
+                </div>
+                <div class="form-group">
+                    <label>验证密钥 (Vkey) *</label>
+                    <input type="text" id="vkey" placeholder="在服务端 Web 管理界面创建客户端后获得">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>连接类型</label>
+                    <div class="radio-group">
+                        <label><input type="radio" name="connType" value="tcp" checked> TCP</label>
+                        <label><input type="radio" name="connType" value="kcp"> KCP</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>断线超时(秒)</label>
+                    <input type="number" id="disconnectTimeout" value="60" min="10" max="300">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>代理地址 (可选)</label>
+                    <input type="text" id="proxyUrl" placeholder="socks5://user:pass@127.0.0.1:1080">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="tlsEnable">
+                        <label for="tlsEnable">启用 TLS 加密</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">系统服务管理</div>
+            <div class="alert alert-info">
+                <strong>说明：</strong>安装为系统服务后，NPC 将在系统启动时自动运行。<br>
+                安装服务后需要重启系统才能生效，或者先使用"启动连接"手动连接。
+            </div>
+            <div class="service-btns">
+                <button class="btn btn-sm btn-primary" onclick="svcInstall()">安装服务</button>
+                <button class="btn btn-sm btn-danger" onclick="svcUninstall()">卸载服务</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">运行日志</div>
+            <div id="logs" class="logs">等待启动...</div>
+        </div>
+    </div>
+
+    <script>
+        function getFormData() {
+            return {
+                server: document.getElementById('server').value.trim(),
+                vkey: document.getElementById('vkey').value.trim(),
+                conn_type: document.querySelector('input[name="connType"]:checked').value,
+                tls_enable: document.getElementById('tlsEnable').checked,
+                proxy_url: document.getElementById('proxyUrl').value.trim(),
+                disconnect_timeout: parseInt(document.getElementById('disconnectTimeout').value) || 60
+            };
+        }
+
+        function setFormData(cfg) {
+            if (cfg.server) document.getElementById('server').value = cfg.server;
+            if (cfg.vkey) document.getElementById('vkey').value = cfg.vkey;
+            if (cfg.conn_type) {
+                const radio = document.querySelector('input[name="connType"][value="' + cfg.conn_type + '"]');
+                if (radio) radio.checked = true;
+            }
+            document.getElementById('tlsEnable').checked = cfg.tls_enable || false;
+            document.getElementById('proxyUrl').value = cfg.proxy_url || '';
+            document.getElementById('disconnectTimeout').value = cfg.disconnect_timeout || 60;
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+
+                document.getElementById('version').textContent = data.version;
+                document.getElementById('logs').textContent = data.logs || '无日志';
+
+                const runStatus = document.getElementById('runStatus');
+                const btnStart = document.getElementById('btnStart');
+                const btnStop = document.getElementById('btnStop');
+
+                if (data.running) {
+                    runStatus.textContent = '运行中';
+                    runStatus.className = 'status-value running';
+                    btnStart.style.display = 'none';
+                    btnStop.style.display = 'block';
+                } else {
+                    runStatus.textContent = '已停止';
+                    runStatus.className = 'status-value stopped';
+                    btnStart.style.display = 'block';
+                    btnStop.style.display = 'none';
+                }
+
+                const svcStatus = document.getElementById('svcStatus');
+                switch (data.svc_status) {
+                    case 'running':
+                        svcStatus.textContent = '运行中';
+                        svcStatus.className = 'status-value running';
+                        break;
+                    case 'stopped':
+                        svcStatus.textContent = '已停止';
+                        svcStatus.className = 'status-value stopped';
+                        break;
+                    case 'not_installed':
+                        svcStatus.textContent = '未安装';
+                        svcStatus.className = 'status-value not_installed';
+                        break;
+                    default:
+                        svcStatus.textContent = '未知';
+                        svcStatus.className = 'status-value';
+                }
+
+                if (data.config) setFormData(data.config);
+
+                const logsEl = document.getElementById('logs');
+                logsEl.scrollTop = logsEl.scrollHeight;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function saveConfig() {
+            const cfg = getFormData();
+            if (!cfg.server || !cfg.vkey) {
+                alert('请填写服务器地址和验证密钥');
+                return;
+            }
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(cfg)
+                });
+                if (res.ok) {
+                    alert('配置已保存');
+                } else {
+                    alert('保存失败: ' + await res.text());
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        async function clearConfig() {
+            if (!confirm('确定要清除所有配置吗？此操作不可恢复！')) {
+                return;
+            }
+            try {
+                const res = await fetch('/api/config/clear', {method: 'POST'});
+                if (res.ok) {
+                    alert('配置已清除');
+                    // 清空表单
+                    document.getElementById('server').value = '';
+                    document.getElementById('vkey').value = '';
+                    document.getElementById('proxyUrl').value = '';
+                    document.getElementById('tlsEnable').checked = false;
+                    document.querySelector('input[name="connType"][value="tcp"]').checked = true;
+                    document.getElementById('disconnectTimeout').value = '60';
+                    fetchStatus();
+                } else {
+                    alert('清除失败: ' + await res.text());
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        async function startClient() {
+            const cfg = getFormData();
+            if (!cfg.server || !cfg.vkey) {
+                alert('请填写服务器地址和验证密钥');
+                return;
+            }
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(cfg)
+            });
+
+            try {
+                const res = await fetch('/api/start', {method: 'POST'});
+                if (!res.ok) alert('启动失败: ' + await res.text());
+                fetchStatus();
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        async function stopClient() {
+            try {
+                const res = await fetch('/api/stop', {method: 'POST'});
+                if (!res.ok) alert('停止失败: ' + await res.text());
+                fetchStatus();
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        async function svcInstall() {
+            const cfg = getFormData();
+            if (!cfg.server || !cfg.vkey) {
+                alert('请先填写服务器地址和验证密钥');
+                return;
+            }
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(cfg)
+            });
+
+            try {
+                const res = await fetch('/api/service/install', {method: 'POST'});
+                if (res.ok) {
+                    alert('服务安装成功！');
+                } else {
+                    const errText = await res.text();
+                    // 检查是否是权限问题
+                    if (errText.includes('需要管理员权限') || errText.includes('请在终端运行')) {
+                        alert('安装失败: ' + errText + '\n\n提示：请关闭此程序，在终端中运行以获得权限支持');
+                    } else {
+                        alert('安装失败: ' + errText);
+                    }
+                }
+                fetchStatus();
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        async function svcUninstall() {
+            if (!confirm('确定要卸载系统服务吗？')) return;
+            try {
+                const res = await fetch('/api/service/uninstall', {method: 'POST'});
+                if (res.ok) {
+                    alert('服务已卸载');
+                } else {
+                    alert('卸载失败: ' + await res.text());
+                }
+                fetchStatus();
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        }
+
+        fetchStatus();
+        setInterval(fetchStatus, 2000);
+    </script>
+</body>
+</html>
