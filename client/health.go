@@ -40,6 +40,9 @@ func heathCheck(healths []*file.Health, c *conn.Conn) bool {
 
 func session(healths []*file.Health, h *sheap.IntHeap) {
 	for {
+		if CloseClient {
+			return
+		}
 		if h.Len() == 0 {
 			logs.Error("health check error")
 			break
@@ -51,6 +54,7 @@ func session(healths []*file.Health, h *sheap.IntHeap) {
 		timer := time.NewTimer(time.Duration(rs) * time.Second)
 		select {
 		case <-timer.C:
+			timer.Stop()
 			for _, v := range healths {
 				if v.HealthNextTime.Before(time.Now()) {
 					v.HealthNextTime = time.Now().Add(time.Duration(v.HealthCheckInterval) * time.Second)

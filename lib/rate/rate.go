@@ -50,12 +50,12 @@ func (s *Rate) Get(size int64) {
 		return
 	}
 	ticker := time.NewTicker(time.Millisecond * 100)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
 			if s.bucketSurplusSize >= size {
 				atomic.AddInt64(&s.bucketSurplusSize, -size)
-				ticker.Stop()
 				return
 			}
 		}

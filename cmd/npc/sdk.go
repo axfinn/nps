@@ -1,3 +1,6 @@
+//go:build cgo_sdk
+// +build cgo_sdk
+
 package main
 
 import (

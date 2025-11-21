@@ -129,8 +129,14 @@ func handleUdpMonitor(config *config.CommonConfig, l *config.LocalServer) {
 	ticker := time.NewTicker(time.Second * 1)
 	defer ticker.Stop()
 	for {
+		if CloseClient {
+			return
+		}
 		select {
 		case <-ticker.C:
+			if CloseClient {
+				return
+			}
 			if !udpConnStatus {
 				udpConn = nil
 				tmpConn, err := common.GetLocalUdpAddr()
@@ -139,6 +145,9 @@ func handleUdpMonitor(config *config.CommonConfig, l *config.LocalServer) {
 					return
 				}
 				for i := 0; i < 10; i++ {
+					if CloseClient {
+						return
+					}
 					logs.Notice("try to connect to the server", i+1)
 					newUdpConn(tmpConn.LocalAddr().String(), config, l)
 					if udpConn != nil {

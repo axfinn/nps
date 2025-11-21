@@ -391,7 +391,11 @@ func sendP2PTestMsg(localConn *net.UDPConn, remoteAddr1, remoteAddr2, remoteAddr
 	logs.Trace(remoteAddr3, remoteAddr2, remoteAddr1)
 	defer localConn.Close()
 	isClose := false
-	defer func() { isClose = true }()
+	closeChan := make(chan struct{})
+	defer func() {
+		isClose = true
+		close(closeChan)
+	}()
 	interval, err := getAddrInterval(remoteAddr1, remoteAddr2, remoteAddr3)
 	if err != nil {
 		return "", err
@@ -417,6 +421,8 @@ func sendP2PTestMsg(localConn *net.UDPConn, remoteAddr1, remoteAddr2, remoteAddr
 				if _, err := localConn.WriteTo([]byte(common.WORK_P2P_CONNECT), remoteUdpAddr); err != nil {
 					return
 				}
+			case <-closeChan:
+				return
 			}
 		}
 	}()
@@ -443,6 +449,8 @@ func sendP2PTestMsg(localConn *net.UDPConn, remoteAddr1, remoteAddr2, remoteAddr
 							if _, err := localConn.WriteTo([]byte(common.WORK_P2P_CONNECT), remoteUdpAddr); err != nil {
 								return
 							}
+						case <-closeChan:
+							return
 						}
 					}
 				}(ports[i])
