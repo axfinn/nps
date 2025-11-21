@@ -23,6 +23,12 @@ func (s *IndexController) Help() {
 	s.display("index/help")
 }
 
+func (s *IndexController) Download() {
+	s.SetInfo("download")
+	s.Data["download_base_url"] = beego.AppConfig.String("web_base_url") + "/static/download"
+	s.display("index/download")
+}
+
 func (s *IndexController) Tcp() {
 	s.SetInfo("tcp")
 	s.SetType("tcp")

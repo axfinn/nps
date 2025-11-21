@@ -103,6 +103,11 @@
                     <span class="nav-label" langtag="word-globalparam"></span></a>
                 </li>
 
+                <li class="{{if eq "download" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/index/download"><i class="fa fa-download fa-lg"></i>
+                    <span class="nav-label">客户端下载</span></a>
+                </li>
+
                 <li class="{{if eq "help" .menu}}active{{end}}">
                     <a href="https://ehang.io/nps/documents" target="_blank"><i class="fa fa-lightbulb fa-lg"></i>
                     <span class="nav-label" langtag="word-help"></span></a>
