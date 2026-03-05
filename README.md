@@ -52,6 +52,32 @@ nps.exe
 双击 npc.exe，按照提示输入服务器地址和 vkey 即可完成配置。
 ```
 
+## Docker 部署
+
+### 服务端
+
+```bash
+# 拉取镜像
+docker pull axfinn/nps
+
+# 运行容器
+docker run -d --name nps \
+  -v /etc/nps:/conf \
+  -p 8024:8024 -p 8080:8080 -p 8443:8443 \
+  axfinn/nps
+```
+
+### 客户端
+
+```bash
+# 拉取镜像
+docker pull axfinn/npc
+
+# 运行容器
+docker run -d --name npc \
+  axfinn/npc -server=你的服务器地址:8024 -vkey=你的vkey
+```
+
 # 配置说明
 
 默认配置文件位于 `conf/nps.conf`，主要配置项：
