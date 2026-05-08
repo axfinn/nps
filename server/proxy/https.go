@@ -166,7 +166,7 @@ func (https *HttpsServer) cert(host *file.Host, c net.Conn, rb []byte, certFileU
 		return true
 	})
 
-	logs.Info("当前 Listener 连接数量", i)
+	logs.Trace("当前 Listener 连接数量", i)
 
 	if cert, ok := https.hostIdCertMap.Load(host.Id); ok {
 		if cert == certFileUrl {
@@ -224,7 +224,7 @@ func (https *HttpsServer) handleHttps2(c net.Conn, hostName string, rb []byte, r
 	if targetAddr, err = host.Target.GetRandomTarget(); err != nil {
 		logs.Warn(err.Error())
 	}
-	logs.Info("new https connection,clientId %d,host %s,remote address %s", host.Client.Id, r.Host, c.RemoteAddr().String())
+	logs.Trace("new https connection,clientId %d,host %s,remote address %s", host.Client.Id, r.Host, c.RemoteAddr().String())
 	https.DealClient(conn.NewConn(c), host.Client, targetAddr, rb, common.CONN_TCP, nil, host.Client.Flow, host.Target.LocalProxy, nil)
 }
 

@@ -47,6 +47,7 @@ var (
 )
 
 func main() {
+	common.InitRuntimeTuning()
 	flag.Parse()
 	logs.Reset()
 	logs.EnableFuncCallDepth(true)

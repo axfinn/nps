@@ -65,10 +65,8 @@ func (s *JsonDb) LoadClientFromJsonFile() {
 		}
 		if post.RateLimit > 0 {
 			post.Rate = rate.NewRate(int64(post.RateLimit * 1024))
-		} else {
-			post.Rate = rate.NewRate(int64(2 << 23))
+			post.Rate.Start()
 		}
-		post.Rate.Start()
 		post.NowConn = 0
 		s.Clients.Store(post.Id, post)
 		if post.Id > int(s.ClientIncreaseId) {
@@ -184,8 +182,10 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 	file, err := os.Create(filePath + ".tmp")
 	// first create a temporary file to store
 	if err != nil {
-		panic(err)
+		logs.Error(err, "create tmp file err, skip store")
+		return
 	}
+	defer file.Close()
 	m.Range(func(key, value interface{}) bool {
 		var b []byte
 		var err error
@@ -219,11 +219,13 @@ func storeSyncMapToFile(m sync.Map, filePath string) {
 		}
 		_, err = file.Write(b)
 		if err != nil {
-			panic(err)
+			logs.Error(err, "write file err, skip item")
+			return true
 		}
 		_, err = file.Write([]byte("\n" + common.CONN_DATA_SEQ))
 		if err != nil {
-			panic(err)
+			logs.Error(err, "write file err, skip item")
+			return true
 		}
 		return true
 	})
@@ -241,14 +243,21 @@ func storeGlobalToFile(m *Glob, filePath string) {
 	file, err := os.Create(filePath + ".tmp")
 	// first create a temporary file to store
 	if err != nil {
-		panic(err)
+		logs.Error(err, "create tmp file err, skip store")
+		return
 	}
+	defer file.Close()
 
 	var b []byte
 	b, err = json.Marshal(m)
+	if err != nil {
+		logs.Error(err, "marshal global err, skip store")
+		return
+	}
 	_, err = file.Write(b)
 	if err != nil {
-		panic(err)
+		logs.Error(err, "write global file err, skip store")
+		return
 	}
 	_ = file.Sync()
 	_ = file.Close()

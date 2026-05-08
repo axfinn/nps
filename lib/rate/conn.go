@@ -10,6 +10,9 @@ type rateConn struct {
 }
 
 func NewRateConn(conn io.ReadWriteCloser, rate *Rate) io.ReadWriteCloser {
+	if rate == nil {
+		return conn
+	}
 	return &rateConn{
 		conn: conn,
 		rate: rate,
@@ -18,17 +21,13 @@ func NewRateConn(conn io.ReadWriteCloser, rate *Rate) io.ReadWriteCloser {
 
 func (s *rateConn) Read(b []byte) (n int, err error) {
 	n, err = s.conn.Read(b)
-	if s.rate != nil {
-		s.rate.Get(int64(n))
-	}
+	s.rate.Get(int64(n))
 	return
 }
 
 func (s *rateConn) Write(b []byte) (n int, err error) {
 	n, err = s.conn.Write(b)
-	if s.rate != nil {
-		s.rate.Get(int64(n))
-	}
+	s.rate.Get(int64(n))
 	return
 }
 

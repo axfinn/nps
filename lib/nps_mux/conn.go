@@ -245,6 +245,9 @@ func (Self *receiveWindow) calcSize() {
 					n = limit
 				}
 			}
+			if n > maximumWindowSize {
+				n = maximumWindowSize
+			}
 			// set the maximum size
 			if atomic.CompareAndSwapUint64(&Self.maxSizeDone, ptrs, Self.pack(n, read, wait)) {
 				// only change the maxSize

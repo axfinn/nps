@@ -23,8 +23,7 @@ const (
 	muxPingReturn
 	muxPing            int32 = -1
 	maximumSegmentSize       = poolSizeWindow
-	maximumWindowSize        = 1 << 27 // 1<<31-1 TCP slide window size is very large,
-	// we use 128M, reduce memory usage
+	maximumWindowSize        = 4 << 20
 )
 
 type Mux struct {
@@ -361,7 +360,7 @@ func (s *Mux) release() {
 	s.newConnQueue.Stop()
 }
 
-//Get New connId as unique flag
+// Get New connId as unique flag
 func (s *Mux) getId() (id int32) {
 	//Avoid going beyond the scope
 	if (math.MaxInt32 - s.id) < 10000 {
