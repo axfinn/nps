@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	poolSizeBuffer = 16 * 1024
+	poolSizeBuffer = 4096
 	poolSizeWindow = poolSizeBuffer - 2 - 4 - 4 - 1 // content length
 )
 
