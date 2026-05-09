@@ -6,6 +6,7 @@ import (
 
 const (
 	poolSizeBuffer = 4096
+	//poolSizeBuffer = 4096 * 10                           // a mux packager total length
 	poolSizeWindow = poolSizeBuffer - 2 - 4 - 4 - 1 // content length
 )
 

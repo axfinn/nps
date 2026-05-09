@@ -32,20 +32,7 @@ type Conn struct {
 
 // new conn
 func NewConn(conn net.Conn) *Conn {
-	OptimizeTCPConn(conn)
 	return &Conn{Conn: conn}
-}
-
-func OptimizeTCPConn(c net.Conn) {
-	tcpConn, ok := c.(*net.TCPConn)
-	if !ok {
-		return
-	}
-	_ = tcpConn.SetNoDelay(true)
-	_ = tcpConn.SetKeepAlive(true)
-	_ = tcpConn.SetKeepAlivePeriod(30 * time.Second)
-	_ = tcpConn.SetReadBuffer(256 * 1024)
-	_ = tcpConn.SetWriteBuffer(256 * 1024)
 }
 
 func (s *Conn) readRequest(buf []byte) (n int, err error) {
@@ -411,13 +398,10 @@ func CopyWaitGroup(conn1, conn2 net.Conn, crypt bool, snappy bool, rate *rate.Ra
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	err := goroutine.CopyConnsPool.Invoke(goroutine.NewConns(connHandle, conn2, flow, wg, task))
+	wg.Wait()
 	if err != nil {
 		logs.Error(err)
-		connHandle.Close()
-		conn2.Close()
-		wg.Done()
 	}
-	wg.Wait()
 }
 
 // get crypt or snappy conn

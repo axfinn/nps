@@ -24,12 +24,6 @@ func (s *Flow) Add(in, out int64) {
 	s.ExportFlow += int64(out)
 }
 
-func (s *Flow) Total() int64 {
-	s.RLock()
-	defer s.RUnlock()
-	return s.ExportFlow + s.InletFlow
-}
-
 type Config struct {
 	U        string
 	P        string

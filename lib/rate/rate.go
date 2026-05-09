@@ -1,7 +1,6 @@
 package rate
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -10,8 +9,7 @@ type Rate struct {
 	bucketSize        int64
 	bucketSurplusSize int64
 	bucketAddSize     int64
-	doneChan          chan struct{}
-	stopOnce          sync.Once
+	stopChan          chan bool
 	NowRate           int64
 }
 
@@ -20,7 +18,7 @@ func NewRate(addSize int64) *Rate {
 		bucketSize:        addSize * 2,
 		bucketSurplusSize: 0,
 		bucketAddSize:     addSize,
-		doneChan:          make(chan struct{}),
+		stopChan:          make(chan bool),
 	}
 }
 
@@ -43,15 +41,10 @@ func (s *Rate) ReturnBucket(size int64) {
 
 // 停止
 func (s *Rate) Stop() {
-	s.stopOnce.Do(func() {
-		close(s.doneChan)
-	})
+	s.stopChan <- true
 }
 
 func (s *Rate) Get(size int64) {
-	if size <= 0 {
-		return
-	}
 	if s.bucketSurplusSize >= size {
 		atomic.AddInt64(&s.bucketSurplusSize, -size)
 		return
@@ -65,15 +58,12 @@ func (s *Rate) Get(size int64) {
 				atomic.AddInt64(&s.bucketSurplusSize, -size)
 				return
 			}
-		case <-s.doneChan:
-			return
 		}
 	}
 }
 
 func (s *Rate) session() {
 	ticker := time.NewTicker(time.Second * 1)
-	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
@@ -83,7 +73,8 @@ func (s *Rate) session() {
 				s.NowRate = s.bucketSize - s.bucketSurplusSize
 			}
 			s.add(s.bucketAddSize)
-		case <-s.doneChan:
+		case <-s.stopChan:
+			ticker.Stop()
 			return
 		}
 	}

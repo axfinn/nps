@@ -23,7 +23,8 @@ const (
 	muxPingReturn
 	muxPing            int32 = -1
 	maximumSegmentSize       = poolSizeWindow
-	maximumWindowSize        = 1 << 27
+	maximumWindowSize        = 1 << 27 // 1<<31-1 TCP slide window size is very large,
+	// we use 128M, reduce memory usage
 )
 
 type Mux struct {

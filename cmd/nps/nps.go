@@ -43,7 +43,6 @@ var (
 func main() {
 
 	debug.SetMaxThreads(1000000)
-	common.InitRuntimeTuning()
 
 	flag.Parse()
 	// init log
