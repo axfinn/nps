@@ -23,7 +23,7 @@ const (
 	muxPingReturn
 	muxPing            int32 = -1
 	maximumSegmentSize       = poolSizeWindow
-	maximumWindowSize        = 4 << 20
+	maximumWindowSize        = 1 << 27
 )
 
 type Mux struct {

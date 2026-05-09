@@ -12,6 +12,9 @@ import (
 const defaultMemoryLimitRatio = 65
 
 func InitRuntimeTuning() {
+	if !runtimeTuningEnabled() {
+		return
+	}
 	if os.Getenv("GOMAXPROCS") == "" {
 		if n := containerCPUQuota(); n > 0 {
 			runtime.GOMAXPROCS(n)
@@ -21,6 +24,15 @@ func InitRuntimeTuning() {
 		if limit := containerMemoryLimit(); limit > 0 {
 			debug.SetMemoryLimit(limit * defaultMemoryLimitRatio / 100)
 		}
+	}
+}
+
+func runtimeTuningEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("NPS_RUNTIME_TUNING"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 

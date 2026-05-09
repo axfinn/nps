@@ -411,10 +411,13 @@ func CopyWaitGroup(conn1, conn2 net.Conn, crypt bool, snappy bool, rate *rate.Ra
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
 	err := goroutine.CopyConnsPool.Invoke(goroutine.NewConns(connHandle, conn2, flow, wg, task))
-	wg.Wait()
 	if err != nil {
 		logs.Error(err)
+		connHandle.Close()
+		conn2.Close()
+		wg.Done()
 	}
+	wg.Wait()
 }
 
 // get crypt or snappy conn

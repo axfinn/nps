@@ -42,7 +42,7 @@ var (
 
 func main() {
 
-	debug.SetMaxThreads(10000)
+	debug.SetMaxThreads(1000000)
 	common.InitRuntimeTuning()
 
 	flag.Parse()

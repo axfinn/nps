@@ -10,7 +10,9 @@ import (
 	"github.com/panjf2000/ants/v2"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -151,6 +153,7 @@ func copyConnGroup(group interface{}) {
 	if !ok {
 		return
 	}
+	defer cg.wg.Done()
 	var err error
 	err = copyBuffer(cg.dst, cg.src, cg.opt)
 	if err != nil {
@@ -162,7 +165,6 @@ func copyConnGroup(group interface{}) {
 	//if conns.flow != nil {
 	//	conns.flow.Add(in, out)
 	//}
-	cg.wg.Done()
 }
 
 type Conns struct {
@@ -186,20 +188,43 @@ func NewConns(c1 io.ReadWriteCloser, c2 net.Conn, flow *file.Flow, wg *sync.Wait
 func copyConns(group interface{}) {
 	//logs.Info("copyConns.........")
 	conns := group.(Conns)
+	defer conns.wg.Done()
 	wg := new(sync.WaitGroup)
 	wg.Add(2)
 	var in, out int64
 	remoteAddr := conns.conn2.RemoteAddr().String()
-	_ = connCopyPool.Invoke(newConnGroupWithOptions(conns.conn1, conns.conn2, wg, &in, newCopyOptions(conns.flow, nil, remoteAddr)))
+	if err := connCopyPool.Invoke(newConnGroupWithOptions(conns.conn1, conns.conn2, wg, &in, newCopyOptions(conns.flow, nil, remoteAddr))); err != nil {
+		logs.Error(err)
+		conns.conn1.Close()
+		conns.conn2.Close()
+		wg.Done()
+	}
 	// outside to mux : incoming
-	_ = connCopyPool.Invoke(newConnGroupWithOptions(conns.conn2, conns.conn1, wg, &out, newCopyOptions(conns.flow, conns.task, remoteAddr)))
+	if err := connCopyPool.Invoke(newConnGroupWithOptions(conns.conn2, conns.conn1, wg, &out, newCopyOptions(conns.flow, conns.task, remoteAddr))); err != nil {
+		logs.Error(err)
+		conns.conn1.Close()
+		conns.conn2.Close()
+		wg.Done()
+	}
 	// mux to outside : outgoing
 	wg.Wait()
 	//if conns.flow != nil {
 	//	conns.flow.Add(in, out)
 	//}
-	conns.wg.Done()
 }
 
-var connCopyPool, _ = ants.NewPoolWithFunc(4096, copyConnGroup, ants.WithNonblocking(false))
-var CopyConnsPool, _ = ants.NewPoolWithFunc(2048, copyConns, ants.WithNonblocking(false))
+func poolSizeFromEnv(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	size, err := strconv.Atoi(value)
+	if err != nil || size <= 0 {
+		logs.Warn("invalid %s=%q, using %d", name, value, fallback)
+		return fallback
+	}
+	return size
+}
+
+var connCopyPool, _ = ants.NewPoolWithFunc(poolSizeFromEnv("NPS_CONN_COPY_POOL_SIZE", 200000), copyConnGroup, ants.WithNonblocking(false))
+var CopyConnsPool, _ = ants.NewPoolWithFunc(poolSizeFromEnv("NPS_COPY_CONNS_POOL_SIZE", 100000), copyConns, ants.WithNonblocking(false))
