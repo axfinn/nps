@@ -436,6 +436,8 @@ func run() {
 	connection.InitConnectionService()
 	//crypt.InitTls(filepath.Join(common.GetRunPath(), "conf", "server.pem"), filepath.Join(common.GetRunPath(), "conf", "server.key"))
 	crypt.InitTls()
+	// Bootstrap the user store on first start (idempotent).
+	file.GetDb().InitUsers(beego.AppConfig.String("web_username"), beego.AppConfig.String("web_password"))
 	tool.InitAllowPort()
 	tool.StartSystemInfo()
 	timeout, err := beego.AppConfig.Int("disconnect_timeout")

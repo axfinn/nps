@@ -30,6 +30,7 @@ func GetDb() *DbUtils {
 		jsonDb.LoadTaskFromJsonFile()
 		jsonDb.LoadHostFromJsonFile()
 		jsonDb.LoadGlobalFromJsonFile()
+		jsonDb.LoadUserFromJsonFile()
 		Db = &DbUtils{JsonDb: jsonDb}
 	})
 	return Db
@@ -47,7 +48,21 @@ func GetMapKeys(m sync.Map, isSort bool, sortKey, order string) (keys []int) {
 	return
 }
 
-func (s *DbUtils) GetClientList(start, length int, search, sort, order string, clientId int) ([]*Client, int) {
+// MatchClientId reports whether a resource is inside the visible scope.
+// An empty slice means no restriction (super admin).
+func MatchClientId(id int, ids []int) bool {
+	if len(ids) == 0 {
+		return true
+	}
+	for _, v := range ids {
+		if v == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *DbUtils) GetClientList(start, length int, search, sort, order string, clientIds []int) ([]*Client, int) {
 	list := make([]*Client, 0)
 	var cnt int
 	keys := GetMapKeys(s.JsonDb.Clients, true, sort, order)
@@ -57,7 +72,7 @@ func (s *DbUtils) GetClientList(start, length int, search, sort, order string, c
 			if v.NoDisplay {
 				continue
 			}
-			if clientId != 0 && clientId != v.Id {
+			if !MatchClientId(v.Id, clientIds) {
 				continue
 			}
 			if search != "" && !(v.Id == common.GetIntNoErrByStr(search) || strings.Contains(v.VerifyKey, search) || strings.Contains(v.Remark, search)) {
@@ -181,7 +196,7 @@ func (s *DbUtils) NewHost(t *Host) error {
 	return nil
 }
 
-func (s *DbUtils) GetHost(start, length int, id int, search string) ([]*Host, int) {
+func (s *DbUtils) GetHost(start, length int, clientIds []int, search string) ([]*Host, int) {
 	list := make([]*Host, 0)
 	var cnt int
 	keys := GetMapKeys(s.JsonDb.Hosts, false, "", "")
@@ -191,7 +206,7 @@ func (s *DbUtils) GetHost(start, length int, id int, search string) ([]*Host, in
 			if search != "" && !(v.Id == common.GetIntNoErrByStr(search) || strings.Contains(v.Host, search) || strings.Contains(v.Remark, search) || strings.Contains(v.Client.VerifyKey, search)) {
 				continue
 			}
-			if id == 0 || v.Client.Id == id {
+			if MatchClientId(v.Client.Id, clientIds) {
 				cnt++
 				if start--; start < 0 {
 					if length--; length >= 0 {

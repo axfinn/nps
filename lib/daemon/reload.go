@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package daemon
@@ -9,6 +10,7 @@ import (
 	"syscall"
 
 	"ehang.io/nps/lib/common"
+	"ehang.io/nps/server/tool"
 	"github.com/astaxie/beego"
 )
 
@@ -19,6 +21,8 @@ func init() {
 		for {
 			<-s
 			beego.LoadAppConfig("ini", filepath.Join(common.GetRunPath(), "conf", "nps.conf"))
+			// allow_ports is cached in memory; refresh it on reload.
+			tool.InitAllowPort()
 		}
 	}()
 }

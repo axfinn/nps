@@ -6,6 +6,7 @@ import (
 	"github.com/astaxie/beego/logs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,7 @@ func NewJsonDb(runPath string) *JsonDb {
 		HostFilePath:   filepath.Join(runPath, "conf", "hosts.json"),
 		ClientFilePath: filepath.Join(runPath, "conf", "clients.json"),
 		GlobalFilePath: filepath.Join(runPath, "conf", "global.json"),
+		UserFilePath:   filepath.Join(runPath, "conf", "users.json"),
 	}
 }
 
@@ -29,15 +31,18 @@ type JsonDb struct {
 	Hosts            sync.Map
 	HostsTmp         sync.Map
 	Clients          sync.Map
+	Users            sync.Map
 	Global           *Glob
 	RunPath          string
 	ClientIncreaseId int32  //client increased id
 	TaskIncreaseId   int32  //task increased id
 	HostIncreaseId   int32  //host increased id
+	UserIncreaseId   int32  //user increased id
 	TaskFilePath     string //task file path
 	HostFilePath     string //host file path
 	ClientFilePath   string //client file path
 	GlobalFilePath   string //global file path
+	UserFilePath     string //user file path
 }
 
 func (s *JsonDb) LoadTaskFromJsonFile() {
@@ -104,6 +109,29 @@ func (s *JsonDb) LoadGlobalFromJsonFile() {
 	})
 }
 
+// LoadUserFromJsonFile reads conf/users.json, a single JSON array. A missing
+// file is normal on first start and is simply ignored.
+func (s *JsonDb) LoadUserFromJsonFile() {
+	loadSyncMapFromFileWithSingleJson(s.UserFilePath, func(v string) {
+		var posts []*User
+		if json.Unmarshal([]byte(v), &posts) != nil {
+			return
+		}
+		for _, post := range posts {
+			if post == nil || post.Username == "" {
+				continue
+			}
+			if post.Role != RoleSuperAdmin {
+				post.Role = RoleUser
+			}
+			s.Users.Store(post.Id, post)
+			if post.Id > int(s.UserIncreaseId) {
+				s.UserIncreaseId = int32(post.Id)
+			}
+		}
+	})
+}
+
 func (s *JsonDb) GetClient(id int) (c *Client, err error) {
 	if v, ok := s.Clients.Load(id); ok {
 		c = v.(*Client)
@@ -145,8 +173,37 @@ func (s *JsonDb) StoreGlobalToJsonFile() {
 	globalLock.Unlock()
 }
 
+var userLock sync.Mutex
+
+func (s *JsonDb) StoreUsersToJsonFile() {
+	userLock.Lock()
+	defer userLock.Unlock()
+	users := make([]*User, 0)
+	s.Users.Range(func(key, value interface{}) bool {
+		users = append(users, value.(*User))
+		return true
+	})
+	sort.Slice(users, func(i, j int) bool { return users[i].Id < users[j].Id })
+	b, err := json.Marshal(users)
+	if err != nil {
+		logs.Error("marshal users error", err)
+		return
+	}
+	if err := os.WriteFile(s.UserFilePath+".tmp", b, 0600); err != nil {
+		logs.Error("write users file error", err)
+		return
+	}
+	if err := os.Rename(s.UserFilePath+".tmp", s.UserFilePath); err != nil {
+		logs.Error("rename users file error", err)
+	}
+}
+
 func (s *JsonDb) GetClientId() int32 {
 	return atomic.AddInt32(&s.ClientIncreaseId, 1)
+}
+
+func (s *JsonDb) GetUserId() int32 {
+	return atomic.AddInt32(&s.UserIncreaseId, 1)
 }
 
 func (s *JsonDb) GetTaskId() int32 {

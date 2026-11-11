@@ -542,7 +542,7 @@ loop:
 							c.WriteAddFail()
 							break loop
 						}
-						if b := tool.TestServerPort(tl.Port, tl.Mode); !b && t.Mode != "secret" && t.Mode != "p2p" {
+						if b := tool.TestServerPort(tl.Port, tl.Mode, nil, client); !b && t.Mode != "secret" && t.Mode != "p2p" {
 							fail = true
 							c.WriteAddFail()
 							break loop

@@ -1,0 +1,94 @@
+<div class="wrapper wrapper-content animated fadeInRight">
+    <div class="row">
+        <div class="col-lg-12">
+            <div class="ibox float-e-margins">
+                <div class="ibox-title">
+                    <h5>用户与权限</h5>
+                </div>
+                <div class="ibox-content">
+                    <div class="alert alert-info">
+                        超级管理员可管理全部用户、客户端与全局设置；普通用户只能管理分配给自己的客户端，且只能使用自己的端口范围。
+                        用户级端口范围不能超出 <code>nps.conf</code> 中的全局 <code>allow_ports</code> 白名单。
+                    </div>
+                    <div id="toolbar">
+                        <a href="{{.web_base_url}}/user/add" class="btn btn-primary dim">
+                            <i class="fa fa-fw fa-lg fa-plus"></i> 新增用户
+                        </a>
+                    </div>
+                    <table id="table"></table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function postAction(url, data, msg) {
+        if (msg && !confirm(msg)) return;
+        $.ajax({
+            type: 'POST',
+            url: url,
+            data: data,
+            success: function (res) {
+                alert(res.msg);
+                if (res.status) $('#table').bootstrapTable('refresh');
+            }
+        });
+    }
+
+    $('#table').bootstrapTable({
+        toolbar: '#toolbar',
+        method: 'post',
+        url: '{{.web_base_url}}/user/list',
+        contentType: 'application/x-www-form-urlencoded',
+        striped: true,
+        search: true,
+        showRefresh: true,
+        pagination: true,
+        sidePagination: 'server',
+        pageNumber: 1,
+        pageList: [10, 20, 50],
+        columns: [
+            {field: 'Id', title: 'ID', halign: 'center'},
+            {field: 'Username', title: '用户名', halign: 'center'},
+            {
+                field: 'Role', title: '角色', halign: 'center',
+                formatter: function (v) {
+                    return v === 'super_admin'
+                        ? '<span class="badge badge-primary">超级管理员</span>'
+                        : '<span class="badge badge-info">普通用户</span>';
+                }
+            },
+            {
+                field: 'ClientIds', title: '可管客户端', halign: 'center',
+                formatter: function (v) { return (v && v.length) ? v.join(', ') : '—'; }
+            },
+            {
+                field: 'AllowPorts', title: '可用端口范围', halign: 'center',
+                formatter: function (v) { return v ? v : '继承全局'; }
+            },
+            {
+                field: 'Status', title: '状态', align: 'center', halign: 'center',
+                formatter: function (v) {
+                    return v ? '<span class="badge badge-primary">启用</span>' : '<span class="badge badge-warning">停用</span>';
+                }
+            },
+            {field: 'Remark', title: '备注'},
+            {field: 'CreateTime', title: '创建时间'},
+            {
+                field: 'option', title: '操作', align: 'center', halign: 'center',
+                formatter: function (value, row) {
+                    var html = '<div class="btn-group">';
+                    if (row.Status) {
+                        html += '<a onclick="postAction(\'{{.web_base_url}}/user/changestatus\', {\'id\':' + row.Id + ', \'status\': 0}, \'确定停用该用户？\')" class="btn btn-outline btn-warning"><i class="fa fa-pause"></i></a>';
+                    } else {
+                        html += '<a onclick="postAction(\'{{.web_base_url}}/user/changestatus\', {\'id\':' + row.Id + ', \'status\': 1})" class="btn btn-outline btn-primary"><i class="fa fa-play"></i></a>';
+                    }
+                    html += '<a href="{{.web_base_url}}/user/edit?id=' + row.Id + '" class="btn btn-outline btn-success"><i class="fa fa-edit"></i></a>';
+                    html += '<a onclick="postAction(\'{{.web_base_url}}/user/del\', {\'id\':' + row.Id + '}, \'确定删除该用户？\')" class="btn btn-outline btn-danger"><i class="fa fa-trash"></i></a>';
+                    return html + '</div>';
+                }
+            }
+        ]
+    });
+</script>

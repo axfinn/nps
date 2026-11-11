@@ -86,8 +86,8 @@ func (s *IndexController) All() {
 func (s *IndexController) GetTunnel() {
 	start, length := s.GetAjaxParams()
 	taskType := s.getEscapeString("type")
-	clientId := s.GetIntNoErr("client_id")
-	list, cnt := server.GetTunnel(start, length, taskType, clientId, s.getEscapeString("search"), s.getEscapeString("sort"), s.getEscapeString("order"))
+	clientIds := s.RequestClientIds()
+	list, cnt := server.GetTunnel(start, length, taskType, clientIds, s.getEscapeString("search"), s.getEscapeString("sort"), s.getEscapeString("order"))
 	s.AjaxTable(list, cnt, cnt, nil)
 }
 
@@ -114,16 +114,17 @@ func (s *IndexController) Add() {
 			Flow:         &file.Flow{},
 		}
 
-		if t.Port <= 0 {
-			t.Port = tool.GenerateServerPort(t.Mode)
-		}
-
-		if !tool.TestServerPort(t.Port, t.Mode) {
-			s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
-		}
 		var err error
 		if t.Client, err = file.GetDb().GetClient(s.GetIntNoErr("client_id")); err != nil {
 			s.AjaxErr(err.Error())
+			return
+		}
+
+		if t.Port <= 0 {
+			t.Port = tool.GenerateServerPort(t.Mode, s.CurrentUser(), t.Client)
+		}
+		if !tool.TestServerPort(t.Port, t.Mode, s.CurrentUser(), t.Client) {
+			s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
 		}
 		if t.Client.MaxTunnelNum != 0 && t.Client.GetTunnelNum() >= t.Client.MaxTunnelNum {
 			s.AjaxErr("The number of tunnels exceeds the limit")
@@ -131,7 +132,7 @@ func (s *IndexController) Add() {
 		if err := file.GetDb().NewTask(t); err != nil {
 			s.AjaxErr(err.Error())
 		}
-		if err := server.AddTask(t); err != nil {
+		if err := server.AddTask(t, s.CurrentUser()); err != nil {
 			s.AjaxErr(err.Error())
 		} else {
 			s.AjaxOkWithId("add success", id)
@@ -154,7 +155,7 @@ func (s *IndexController) Copy() {
 		id := int(file.GetDb().JsonDb.GetTaskId())
 		newTask := &file.Tunnel{
 			Client:       oldTask.Client,
-			Port:         tool.GenerateServerPort(oldTask.Mode),
+			Port:         tool.GenerateServerPort(oldTask.Mode, s.CurrentUser(), oldTask.Client),
 			ServerIp:     oldTask.ServerIp,
 			Mode:         oldTask.Mode,
 			Target:       oldTask.Target,
@@ -167,7 +168,7 @@ func (s *IndexController) Copy() {
 			ProtoVersion: oldTask.ProtoVersion,
 			Flow:         &file.Flow{},
 		}
-		if !tool.TestServerPort(newTask.Port, newTask.Mode) {
+		if !tool.TestServerPort(newTask.Port, newTask.Mode, s.CurrentUser(), newTask.Client) {
 			s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
 		}
 
@@ -177,7 +178,7 @@ func (s *IndexController) Copy() {
 		if err := file.GetDb().NewTask(newTask); err != nil {
 			s.AjaxErr(err.Error())
 		}
-		if err := server.AddTask(newTask); err != nil {
+		if err := server.AddTask(newTask, s.CurrentUser()); err != nil {
 			s.AjaxErr(err.Error())
 		} else {
 			s.AjaxOkWithId("add success", id)
@@ -221,10 +222,10 @@ func (s *IndexController) Edit() {
 				t.Port = s.GetIntNoErr("port")
 
 				if t.Port <= 0 {
-					t.Port = tool.GenerateServerPort(t.Mode)
+					t.Port = tool.GenerateServerPort(t.Mode, s.CurrentUser(), t.Client)
 				}
 
-				if !tool.TestServerPort(s.GetIntNoErr("port"), t.Mode) {
+				if !tool.TestServerPort(t.Port, t.Mode, s.CurrentUser(), t.Client) {
 					s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
 					return
 				}
@@ -241,7 +242,7 @@ func (s *IndexController) Edit() {
 			t.Target.LocalProxy = s.GetBoolNoErr("local_proxy")
 			file.GetDb().UpdateTask(t)
 			server.StopServer(t.Id)
-			server.StartTask(t.Id)
+			server.StartTask(t.Id, s.CurrentUser())
 		}
 		s.AjaxOk("modified success")
 	}
@@ -265,7 +266,7 @@ func (s *IndexController) Del() {
 
 func (s *IndexController) Start() {
 	id := s.GetIntNoErr("id")
-	if err := server.StartTask(id); err != nil {
+	if err := server.StartTask(id, s.CurrentUser()); err != nil {
 		s.AjaxErr("start error")
 	}
 	s.AjaxOk("start success")
@@ -279,8 +280,8 @@ func (s *IndexController) HostList() {
 		s.display("index/hlist")
 	} else {
 		start, length := s.GetAjaxParams()
-		clientId := s.GetIntNoErr("client_id")
-		list, cnt := file.GetDb().GetHost(start, length, clientId, s.getEscapeString("search"))
+		clientIds := s.RequestClientIds()
+		list, cnt := file.GetDb().GetHost(start, length, clientIds, s.getEscapeString("search"))
 		s.AjaxTable(list, cnt, cnt, nil)
 	}
 }

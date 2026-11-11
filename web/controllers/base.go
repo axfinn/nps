@@ -1,13 +1,13 @@
 package controllers
 
 import (
-	"ehang.io/nps/bridge"
 	"html"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"ehang.io/nps/bridge"
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/crypt"
 	"ehang.io/nps/lib/file"
@@ -21,7 +21,7 @@ type BaseController struct {
 	actionName     string
 }
 
-//初始化参数
+// 初始化参数
 func (s *BaseController) Prepare() {
 	s.Data["web_base_url"] = beego.AppConfig.String("web_base_url")
 	controllerName, actionName := s.GetControllerAndAction()
@@ -43,17 +43,23 @@ func (s *BaseController) Prepare() {
 		}
 	} else {
 		s.SetSession("isAdmin", true)
+		s.SetSession("role", file.RoleSuperAdmin)
+		s.DelSession("userId")
+		s.DelSession("clientIds")
 		s.Data["isAdmin"] = true
 	}
-	if s.GetSession("isAdmin") != nil && !s.GetSession("isAdmin").(bool) {
-		s.Ctx.Input.SetData("client_id", s.GetSession("clientId").(int))
-		s.Ctx.Input.SetParam("client_id", strconv.Itoa(s.GetSession("clientId").(int)))
+	if s.IsSuperAdmin() {
+		s.Data["isAdmin"] = true
+		if s.GetSession("role") == nil {
+			s.SetSession("role", file.RoleSuperAdmin)
+		}
+	} else {
 		s.Data["isAdmin"] = false
 		s.Data["username"] = s.GetSession("username")
 		s.CheckUserAuth()
-	} else {
-		s.Data["isAdmin"] = true
 	}
+	s.Data["role"] = s.GetSession("role")
+	s.Data["user_auth_enable"] = beego.AppConfig.DefaultBool("user_auth_enable", true)
 	s.Data["https_just_proxy"], _ = beego.AppConfig.Bool("https_just_proxy")
 	s.Data["allow_user_login"], _ = beego.AppConfig.Bool("allow_user_login")
 	s.Data["allow_flow_limit"], _ = beego.AppConfig.Bool("allow_flow_limit")
@@ -66,7 +72,129 @@ func (s *BaseController) Prepare() {
 	s.Data["allow_user_change_username"], _ = beego.AppConfig.Bool("allow_user_change_username")
 }
 
-//加载模板
+func toIntSlice(v interface{}) []int {
+	switch x := v.(type) {
+	case []int:
+		return x
+	case []interface{}:
+		out := make([]int, 0, len(x))
+		for _, it := range x {
+			switch n := it.(type) {
+			case int:
+				out = append(out, n)
+			case int64:
+				out = append(out, int(n))
+			case float64:
+				out = append(out, int(n))
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// VisibleClientIds returns the client scope of the current session. An empty
+// slice means the whole server (super admin).
+func (s *BaseController) VisibleClientIds() []int {
+	return toIntSlice(s.GetSession("clientIds"))
+}
+
+func (s *BaseController) IsSuperAdmin() bool {
+	v := s.GetSession("isAdmin")
+	if v == nil {
+		return true
+	}
+	b, _ := v.(bool)
+	return b
+}
+
+// CurrentUser resolves the logged-in user. Super admins get a sentinel with
+// RoleSuperAdmin so callers can bypass per-user restrictions. Legacy logins
+// that never created a user record return nil and fall back to client-owner
+// resolution.
+func (s *BaseController) CurrentUser() *file.User {
+	if s.IsSuperAdmin() {
+		return &file.User{Role: file.RoleSuperAdmin}
+	}
+	if v := s.GetSession("userId"); v != nil {
+		if id, ok := v.(int); ok {
+			if u, err := file.GetDb().GetUser(id); err == nil {
+				return u
+			}
+		}
+	}
+	return nil
+}
+
+func (s *BaseController) RequireSuperAdmin() bool {
+	if !s.IsSuperAdmin() {
+		s.AjaxErr("super admin permission required")
+		return false
+	}
+	return true
+}
+
+// RequestClientIds narrows the scope when the request explicitly carries a
+// client_id. Illegal client ids are rejected by CheckUserAuth; this returns
+// a guaranteed-empty scope as a second line of defence.
+func (s *BaseController) RequestClientIds() []int {
+	visible := s.VisibleClientIds()
+	if id := s.GetIntNoErr("client_id"); id != 0 {
+		if file.MatchClientId(id, visible) {
+			return []int{id}
+		}
+		return []int{-1}
+	}
+	return visible
+}
+
+// CheckUserAuth enforces the normal-user boundary. Super admins pass through.
+func (s *BaseController) CheckUserAuth() {
+	if s.IsSuperAdmin() {
+		return
+	}
+	allowed := func(id int) bool { return file.MatchClientId(id, s.VisibleClientIds()) }
+
+	// User management and global settings are super-admin only.
+	if s.controllerName == "user" || s.controllerName == "global" {
+		s.StopRun()
+		return
+	}
+	// Creating / deleting / disabling clients is super-admin only.
+	if s.controllerName == "client" {
+		switch s.actionName {
+		case "add", "del", "changestatus":
+			s.StopRun()
+			return
+		}
+		if id := s.GetIntNoErr("id"); id != 0 && !allowed(id) {
+			s.StopRun()
+			return
+		}
+	}
+	if cid := s.GetIntNoErr("client_id"); cid != 0 && !allowed(cid) {
+		s.StopRun()
+		return
+	}
+	if s.controllerName == "index" {
+		if id := s.GetIntNoErr("id"); id != 0 {
+			belong := false
+			if v, ok := file.GetDb().JsonDb.Hosts.Load(id); ok && allowed(v.(*file.Host).Client.Id) {
+				belong = true
+			}
+			if !belong {
+				if v, ok := file.GetDb().JsonDb.Tasks.Load(id); ok && allowed(v.(*file.Tunnel).Client.Id) {
+					belong = true
+				}
+			}
+			if !belong {
+				s.StopRun()
+			}
+		}
+	}
+}
+
+// 加载模板
 func (s *BaseController) display(tpl ...string) {
 	s.Data["web_base_url"] = beego.AppConfig.String("web_base_url")
 	var tplname string
@@ -100,19 +228,19 @@ func (s *BaseController) display(tpl ...string) {
 	s.TplName = tplname
 }
 
-//错误
+// 错误
 func (s *BaseController) error() {
 	s.Data["web_base_url"] = beego.AppConfig.String("web_base_url")
 	s.Layout = "public/layout.html"
 	s.TplName = "public/error.html"
 }
 
-//getEscapeString
+// getEscapeString
 func (s *BaseController) getEscapeString(key string) string {
 	return html.EscapeString(s.GetString(key))
 }
 
-//去掉没有err返回值的int
+// 去掉没有err返回值的int
 func (s *BaseController) GetIntNoErr(key string, def ...int) int {
 	strv := s.Ctx.Input.Query(key)
 	if len(strv) == 0 && len(def) > 0 {
@@ -122,7 +250,7 @@ func (s *BaseController) GetIntNoErr(key string, def ...int) int {
 	return val
 }
 
-//获取去掉错误的bool值
+// 获取去掉错误的bool值
 func (s *BaseController) GetBoolNoErr(key string, def ...bool) bool {
 	strv := s.Ctx.Input.Query(key)
 	if len(strv) == 0 && len(def) > 0 {
@@ -132,28 +260,28 @@ func (s *BaseController) GetBoolNoErr(key string, def ...bool) bool {
 	return val
 }
 
-//ajax正确返回
+// ajax正确返回
 func (s *BaseController) AjaxOk(str string) {
 	s.Data["json"] = ajax(str, 1)
 	s.ServeJSON()
 	s.StopRun()
 }
 
-//ajax正确返回
+// ajax正确返回
 func (s *BaseController) AjaxOkWithId(str string, id int) {
 	s.Data["json"] = ajaxWithId(str, 1, id)
 	s.ServeJSON()
 	s.StopRun()
 }
 
-//ajax错误返回
+// ajax错误返回
 func (s *BaseController) AjaxErr(str string) {
 	s.Data["json"] = ajax(str, 0)
 	s.ServeJSON()
 	s.StopRun()
 }
 
-//组装ajax
+// 组装ajax
 func ajax(str string, status int) map[string]interface{} {
 	json := make(map[string]interface{})
 	json["status"] = status
@@ -161,7 +289,7 @@ func ajax(str string, status int) map[string]interface{} {
 	return json
 }
 
-//组装ajax
+// 组装ajax
 func ajaxWithId(str string, status int, id int) map[string]interface{} {
 	json := make(map[string]interface{})
 	json["status"] = status
@@ -170,7 +298,7 @@ func ajaxWithId(str string, status int, id int) map[string]interface{} {
 	return json
 }
 
-//ajax table返回
+// ajax table返回
 func (s *BaseController) AjaxTable(list interface{}, cnt int, recordsTotal int, kwargs map[string]interface{}) {
 	json := make(map[string]interface{})
 	json["rows"] = list
@@ -187,7 +315,7 @@ func (s *BaseController) AjaxTable(list interface{}, cnt int, recordsTotal int, 
 	s.StopRun()
 }
 
-//ajax table参数
+// ajax table参数
 func (s *BaseController) GetAjaxParams() (start, limit int) {
 	return s.GetIntNoErr("offset"), s.GetIntNoErr("limit")
 }
@@ -198,40 +326,4 @@ func (s *BaseController) SetInfo(name string) {
 
 func (s *BaseController) SetType(name string) {
 	s.Data["type"] = name
-}
-
-func (s *BaseController) CheckUserAuth() {
-	if s.controllerName == "client" {
-		if s.actionName == "add" {
-			s.StopRun()
-			return
-		}
-		if id := s.GetIntNoErr("id"); id != 0 {
-			if id != s.GetSession("clientId").(int) {
-				s.StopRun()
-				return
-			}
-		}
-	}
-	if s.controllerName == "index" {
-		if id := s.GetIntNoErr("id"); id != 0 {
-			belong := false
-			if strings.Contains(s.actionName, "h") {
-				if v, ok := file.GetDb().JsonDb.Hosts.Load(id); ok {
-					if v.(*file.Host).Client.Id == s.GetSession("clientId").(int) {
-						belong = true
-					}
-				}
-			} else {
-				if v, ok := file.GetDb().JsonDb.Tasks.Load(id); ok {
-					if v.(*file.Tunnel).Client.Id == s.GetSession("clientId").(int) {
-						belong = true
-					}
-				}
-			}
-			if !belong {
-				s.StopRun()
-			}
-		}
-	}
 }

@@ -65,6 +65,14 @@
                     <a href="{{.web_base_url}}/client/list"><i class="fa fa-desktop fa-lg"></i>
                     <span class="nav-label" langtag="word-client"></span></a>
                 </li>
+                {{if eq true .user_auth_enable}}
+                {{if eq true .isAdmin}}
+                <li class="{{if eq "user" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/user/list"><i class="fa fa-users fa-lg"></i>
+                    <span class="nav-label">用户与权限</span></a>
+                </li>
+                {{end}}
+                {{end}}
                 <li class="{{if eq "host" .menu}}active{{end}}">
                     <a href="{{.web_base_url}}/index/hostlist"><i class="fa fa-globe fa-lg"></i>
                     <span class="nav-label" langtag="scheme-host"></span></a>
@@ -98,10 +106,12 @@
                     <span class="nav-label" langtag="scheme-file"></span></a>
                 </li>
 
+                {{if eq true .isAdmin}}
                 <li class="{{if eq "global" .menu}}active{{end}}">
                 <a href="{{.web_base_url}}/global/index"><i class="fa fa-cog fa-lg"></i>
                     <span class="nav-label" langtag="word-globalparam"></span></a>
                 </li>
+                {{end}}
 
                 <li class="{{if eq "download" .menu}}active{{end}}">
                     <a href="{{.web_base_url}}/index/download"><i class="fa fa-download fa-lg"></i>

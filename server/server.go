@@ -46,7 +46,7 @@ func InitFromCsv() {
 	//Initialize services in server-side files
 	file.GetDb().JsonDb.Tasks.Range(func(key, value interface{}) bool {
 		if value.(*file.Tunnel).Status {
-			AddTask(value.(*file.Tunnel))
+			AddTask(value.(*file.Tunnel), nil)
 		}
 		return true
 	})
@@ -57,7 +57,7 @@ func DealBridgeTask() {
 	for {
 		select {
 		case t := <-Bridge.OpenTask:
-			AddTask(t)
+			AddTask(t, nil)
 		case t := <-Bridge.CloseTask:
 			StopServer(t.Id)
 		case id := <-Bridge.CloseClient:
@@ -68,7 +68,7 @@ func DealBridgeTask() {
 				}
 			}
 		case tunnel := <-Bridge.OpenTask:
-			StartTask(tunnel.Id)
+			StartTask(tunnel.Id, nil)
 		case s := <-Bridge.SecretChan:
 			logs.Trace("New secret connection, addr", s.Conn.Conn.RemoteAddr())
 			if t := file.GetDb().GetTaskByMd5Password(s.Password); t != nil {
@@ -145,7 +145,7 @@ func NewMode(Bridge *bridge.Bridge, c *file.Tunnel) proxy.Service {
 			Mode:   "httpHostServer",
 			Status: true,
 		}
-		AddTask(t)
+		AddTask(t, nil)
 		service = proxy.NewWebServer(Bridge)
 	case "httpHostServer":
 		httpPort, _ := beego.AppConfig.Int("http_proxy_port")
@@ -185,14 +185,14 @@ func StopServer(id int) error {
 }
 
 // add task
-func AddTask(t *file.Tunnel) error {
+func AddTask(t *file.Tunnel, u *file.User) error {
 	if t.Mode == "secret" || t.Mode == "p2p" {
 		logs.Info("secret task %s start ", t.Remark)
 		//RunList[t.Id] = nil
 		RunList.Store(t.Id, nil)
 		return nil
 	}
-	if b := tool.TestServerPort(t.Port, t.Mode); !b && t.Mode != "httpHostServer" {
+	if b := tool.TestServerPort(t.Port, t.Mode, u, t.Client); !b && t.Mode != "httpHostServer" {
 		logs.Error("taskId %d start error port %d open failed", t.Id, t.Port)
 		return errors.New("the port open error")
 	}
@@ -218,11 +218,11 @@ func AddTask(t *file.Tunnel) error {
 }
 
 // start task
-func StartTask(id int) error {
+func StartTask(id int, u *file.User) error {
 	if t, err := file.GetDb().GetTask(id); err != nil {
 		return err
 	} else {
-		AddTask(t)
+		AddTask(t, u)
 		t.Status = true
 		file.GetDb().UpdateTask(t)
 	}
@@ -241,7 +241,7 @@ func DelTask(id int) error {
 }
 
 // get task list by page num
-func GetTunnel(start, length int, typeVal string, clientId int, search string, sortField string, order string) ([]*file.Tunnel, int) {
+func GetTunnel(start, length int, typeVal string, clientIds []int, search string, sortField string, order string) ([]*file.Tunnel, int) {
 	all_list := make([]*file.Tunnel, 0) //store all Tunnel
 	list := make([]*file.Tunnel, 0)
 	var cnt int
@@ -251,7 +251,7 @@ func GetTunnel(start, length int, typeVal string, clientId int, search string, s
 	for _, key := range keys {
 		if value, ok := file.GetDb().JsonDb.Tasks.Load(key); ok {
 			v := value.(*file.Tunnel)
-			if (typeVal != "" && v.Mode != typeVal || (clientId != 0 && v.Client.Id != clientId)) || (typeVal == "" && clientId != v.Client.Id) {
+			if (typeVal != "" && v.Mode != typeVal) || !file.MatchClientId(v.Client.Id, clientIds) {
 				continue
 			}
 			all_list = append(all_list, v)
@@ -294,7 +294,7 @@ func GetTunnel(start, length int, typeVal string, clientId int, search string, s
 	for _, key := range all_list {
 		if value, ok := file.GetDb().JsonDb.Tasks.Load(key.Id); ok {
 			v := value.(*file.Tunnel)
-			if (typeVal != "" && v.Mode != typeVal || (clientId != 0 && v.Client.Id != clientId)) || (typeVal == "" && clientId != v.Client.Id) {
+			if (typeVal != "" && v.Mode != typeVal) || !file.MatchClientId(v.Client.Id, clientIds) {
 				continue
 			}
 			if search != "" && !(v.Id == common.GetIntNoErrByStr(search) || v.Port == common.GetIntNoErrByStr(search) || strings.Contains(v.Password, search) || strings.Contains(v.Remark, search) || strings.Contains(v.Target.TargetStr, search)) {
@@ -322,8 +322,8 @@ func GetTunnel(start, length int, typeVal string, clientId int, search string, s
 }
 
 // get client list
-func GetClientList(start, length int, search, sort, order string, clientId int) (list []*file.Client, cnt int) {
-	list, cnt = file.GetDb().GetClientList(start, length, search, sort, order, clientId)
+func GetClientList(start, length int, search, sort, order string, clientIds []int) (list []*file.Client, cnt int) {
+	list, cnt = file.GetDb().GetClientList(start, length, search, sort, order, clientIds)
 	dealClientData()
 	return
 }

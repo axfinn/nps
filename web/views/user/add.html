@@ -1,0 +1,90 @@
+<div class="row">
+    <div class="col-md-12">
+        <div class="ibox float-e-margins">
+            <h3 class="ibox-title">新增用户</h3>
+            <div class="ibox-content">
+                <form class="form-horizontal" onsubmit="return false;">
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">用户名</label>
+                        <div class="col-sm-10">
+                            <input class="form-control" type="text" name="username" placeholder="登录用户名，全局唯一">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">密码</label>
+                        <div class="col-sm-10">
+                            <input class="form-control" type="password" name="password" placeholder="登录密码，加盐哈希后存储">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">角色</label>
+                        <div class="col-sm-10">
+                            <select class="form-control" name="role">
+                                <option value="user">普通用户</option>
+                                <option value="super_admin">超级管理员</option>
+                            </select>
+                            <span class="help-block m-b-none">超级管理员可管理全部客户端、用户与全局设置，且不受用户级端口范围约束。</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">状态</label>
+                        <div class="col-sm-10">
+                            <select class="form-control" name="status">
+                                <option value="1">启用</option>
+                                <option value="0">停用</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">可用端口范围</label>
+                        <div class="col-sm-10">
+                            <input class="form-control" type="text" name="allow_ports" placeholder="如 9001-9009,10001；留空表示继承全局白名单">
+                            <span class="help-block m-b-none">仅对普通用户生效；只能收窄、不能超出 nps.conf 的全局 allow_ports。该用户只能在其范围内新建隧道。</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">分配客户端</label>
+                        <div class="col-sm-10">
+                            {{range .clients}}
+                            <label class="checkbox-inline" style="margin-right:14px;min-width:180px;">
+                                <input type="checkbox" name="client_ids" value="{{.Id}}" {{if index $.selected .Id}}checked{{end}}>
+                                #{{.Id}} {{.Remark}}
+                            </label>
+                            {{end}}
+                            <span class="help-block m-b-none">一个客户端只能归属一个普通用户；未分配的客户端仅超级管理员可管理。</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">备注</label>
+                        <div class="col-sm-10">
+                            <input class="form-control" type="text" name="remark">
+                        </div>
+                    </div>
+                    <div class="hr-line-dashed"></div>
+                    <div class="form-group">
+                        <div class="col-sm-4 col-sm-offset-2">
+                            <button class="btn btn-success" type="button" onclick="saveUser('{{.web_base_url}}/user/add')">
+                                <i class="fa fa-fw fa-lg fa-check-circle"></i> 保存
+                            </button>
+                            <a class="btn btn-default" href="{{.web_base_url}}/user/list">返回</a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function saveUser(url) {
+        $.ajax({
+            type: 'POST',
+            url: url,
+            data: $('form').serialize(),
+            success: function (res) {
+                alert(res.msg);
+                if (res.status) window.location.href = '{{.web_base_url}}/user/list';
+            }
+        });
+    }
+</script>

@@ -4,9 +4,11 @@ import (
 	"math"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"ehang.io/nps/lib/common"
+	"ehang.io/nps/lib/file"
 	"github.com/astaxie/beego"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/load"
@@ -31,38 +33,99 @@ func InitAllowPort() {
 	ports = common.GetPorts(p)
 }
 
-func TestServerPort(p int, m string) (b bool) {
+// AllowedPorts resolves the effective whitelist for a tunnel creation.
+// u is the operator: when provided (web path) it is the logged-in user; when
+// nil (bridge / internal startup) the client's owner is used instead.
+// The global allow_ports is a hard ceiling for everyone. A normal user's own
+// AllowPorts can only narrow it further. A super admin is never bound by a
+// per-user range. restricted=false means no whitelist at all.
+func AllowedPorts(u *file.User, c *file.Client) (allowed []int, restricted bool) {
+	globalRestricted := len(ports) != 0
+	var userPorts []int
+	userRestricted := false
+
+	var owner *file.User
+	if u != nil {
+		owner = u
+	} else if c != nil {
+		owner = file.GetDb().GetUserByClientId(c.Id)
+	}
+	if owner != nil && !owner.IsSuperAdmin() && strings.TrimSpace(owner.AllowPorts) != "" {
+		userPorts = common.GetPorts(owner.AllowPorts)
+		userRestricted = true
+	}
+
+	if !globalRestricted && !userRestricted {
+		return nil, false
+	}
+	if !globalRestricted {
+		return userPorts, true
+	}
+	if !userRestricted {
+		return ports, true
+	}
+	set := make(map[int]struct{}, len(ports))
+	for _, p := range ports {
+		set[p] = struct{}{}
+	}
+	allowed = make([]int, 0, len(userPorts))
+	for _, p := range userPorts {
+		if _, ok := set[p]; ok {
+			allowed = append(allowed, p)
+		}
+	}
+	return allowed, true
+}
+
+func portAvailable(p int, m string) bool {
+	if m == "udp" {
+		return common.TestUdpPort(p)
+	}
+	return common.TestTcpPort(p)
+}
+
+func TestServerPort(p int, m string, u *file.User, c *file.Client) bool {
+	// p2p and secret tunnels never bind a server-side port.
 	if m == "p2p" || m == "secret" {
 		return true
 	}
 	if p > 65535 || p < 0 {
 		return false
 	}
-	if len(ports) != 0 {
-		if !common.InIntArr(ports, p) {
-			return false
-		}
+	allowed, restricted := AllowedPorts(u, c)
+	if restricted && (len(allowed) == 0 || !common.InIntArr(allowed, p)) {
+		return false
 	}
-	if m == "udp" {
-		b = common.TestUdpPort(p)
-	} else {
-		b = common.TestTcpPort(p)
-	}
-	return
+	return portAvailable(p, m)
 }
 
-func GenerateServerPort(m string) int {
-	for {
-		//生成随机数 1024 - 65535
-		serverPort := rand.Intn(65535)
-		if serverPort < 1024 {
-			serverPort = 1024
+// GenerateServerPort picks a free port from the effective whitelist instead
+// of blindly probing the whole 1024-65535 range.
+func GenerateServerPort(m string, u *file.User, c *file.Client) int {
+	allowed, restricted := AllowedPorts(u, c)
+	if restricted {
+		if len(allowed) == 0 {
+			return 0
 		}
-
-		if TestServerPort(serverPort, m) {
-			return serverPort
+		start := rand.Intn(len(allowed))
+		for i := 0; i < len(allowed); i++ {
+			p := allowed[(start+i)%len(allowed)]
+			if portAvailable(p, m) {
+				return p
+			}
+		}
+		return 0
+	}
+	for i := 0; i < 20000; i++ {
+		p := rand.Intn(65535)
+		if p < 1024 {
+			p = 1024
+		}
+		if portAvailable(p, m) {
+			return p
 		}
 	}
+	return 0
 }
 
 func getSeverStatus() {

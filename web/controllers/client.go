@@ -23,14 +23,8 @@ func (s *ClientController) List() {
 		return
 	}
 	start, length := s.GetAjaxParams()
-	clientIdSession := s.GetSession("clientId")
-	var clientId int
-	if clientIdSession == nil {
-		clientId = 0
-	} else {
-		clientId = clientIdSession.(int)
-	}
-	list, cnt := server.GetClientList(start, length, s.getEscapeString("search"), s.getEscapeString("sort"), s.getEscapeString("order"), clientId)
+	clientIds := s.RequestClientIds()
+	list, cnt := server.GetClientList(start, length, s.getEscapeString("search"), s.getEscapeString("sort"), s.getEscapeString("order"), clientIds)
 	cmd := make(map[string]interface{})
 	ip := s.Ctx.Request.Host
 	cmd["ip"] = common.GetIpByAddr(ip)
@@ -46,6 +40,9 @@ func (s *ClientController) Add() {
 		s.SetInfo("add client")
 		s.display()
 	} else {
+		if !s.RequireSuperAdmin() {
+			return
+		}
 		id := int(file.GetDb().JsonDb.GetClientId())
 		t := &file.Client{
 			VerifyKey: s.getEscapeString("vkey"),
@@ -122,7 +119,7 @@ func (s *ClientController) Edit() {
 					return
 				}
 			}
-			if s.GetSession("isAdmin").(bool) {
+			if s.IsSuperAdmin() {
 				if !file.GetDb().VerifyVkey(s.getEscapeString("vkey"), c.Id) {
 					s.AjaxErr("Vkey duplicate, please reset")
 					return
@@ -139,7 +136,7 @@ func (s *ClientController) Edit() {
 			c.Cnf.Compress = common.GetBoolByStr(s.getEscapeString("compress"))
 			c.Cnf.Crypt = s.GetBoolNoErr("crypt")
 			b, err := beego.AppConfig.Bool("allow_user_change_username")
-			if s.GetSession("isAdmin").(bool) || (err == nil && b) {
+			if s.IsSuperAdmin() || (err == nil && b) {
 				c.WebUserName = s.getEscapeString("web_username")
 			}
 			c.WebPassword = s.getEscapeString("web_password")
@@ -188,6 +185,9 @@ func RemoveRepeatedElement(arr []string) (newArr []string) {
 
 // 更改状态
 func (s *ClientController) ChangeStatus() {
+	if !s.RequireSuperAdmin() {
+		return
+	}
 	id := s.GetIntNoErr("id")
 	if client, err := file.GetDb().GetClient(id); err == nil {
 		client.Status = s.GetBoolNoErr("status")
@@ -201,6 +201,9 @@ func (s *ClientController) ChangeStatus() {
 
 // 删除客户端
 func (s *ClientController) Del() {
+	if !s.RequireSuperAdmin() {
+		return
+	}
 	id := s.GetIntNoErr("id")
 	if err := file.GetDb().DelClient(id); err != nil {
 		s.AjaxErr("delete error")
