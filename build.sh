@@ -1,6 +1,6 @@
 #/bash/sh
-export VERSION=0.26.73
-export GOPROXY=direct
+export VERSION=0.26.74
+export GOPROXY=https://proxy.golang.org,https://goproxy.cn,direct
 
 sudo apt-get update
 sudo apt-get install gcc-mingw-w64-i686 gcc-multilib

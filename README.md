@@ -91,6 +91,10 @@ docker run -d --name npc \
 
 # 更新日志
 
+- 2026-11-11 v0.26.74
+  优化：
+  - 修复 GitHub Actions Docker 多架构镜像构建过慢 / 偶发失败（超时）的问题：构建阶段改用 BUILDPLATFORM 交叉编译规避 QEMU 模拟、GOPROXY 改为走模块代理、接入 buildx GitHub 缓存（type=gha）并显式设置超时。
+
 - 2026-11-11 v0.26.73
   新增：
   - 引入独立用户体系：新增超管（super_admin）与普通用户（user）两种角色，独立存储于 conf/users.json。

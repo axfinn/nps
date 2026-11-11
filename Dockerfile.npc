@@ -1,14 +1,20 @@
-FROM golang:1.22 as builder
-ARG GOPROXY=direct
+# syntax=docker/dockerfile:1
+# 构建阶段使用 BUILDPLATFORM（CI 宿主机原生架构）编译，再通过 GOOS/GOARCH 交叉编译到目标平台，
+# 避免 QEMU 模拟编译（npc 依赖 fyne，模拟编译极其缓慢），显著缩短构建时间。
+FROM --platform=$BUILDPLATFORM golang:1.22 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+ARG GOPROXY=https://proxy.golang.org,https://goproxy.cn,direct
+ENV GOPROXY=$GOPROXY
 WORKDIR /go/src/ehang.io/nps
 COPY . .
-RUN go get -d -v ./...
-RUN CGO_ENABLED=0 go build -ldflags="-w -s -extldflags -static" ./cmd/npc/npc.go
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s -extldflags -static" -o /out/npc ./cmd/npc/npc.go
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /
-COPY --from=builder /go/src/ehang.io/nps/npc .
+COPY --from=builder /out/npc ./npc
 COPY --from=builder /go/src/ehang.io/nps/conf/npc.conf /conf/npc.conf
 VOLUME /conf
 EXPOSE 80
