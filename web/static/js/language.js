@@ -1,5 +1,11 @@
 (function ($) {
 
+	// 安全读取后台基路径：window.nps 可能未定义（如脚本加载顺序异常），
+	// 此时降级为空字符串，改用相对路径，避免 cloudLang/setCookie 直接抛错。
+	function npsBase() {
+		return (window.nps && window.nps.web_base_url) ? window.nps.web_base_url : "";
+	}
+
 	function xml2json(Xml) {
 		var tempvalue, tempJson = {};
 		$(Xml).each(function() {
@@ -21,7 +27,7 @@
 	function setCookie (c_name, value, expiredays) {
 		var exdate = new Date();
 		exdate.setDate(exdate.getDate() + expiredays);
-		document.cookie = c_name + '=' + escape(value) + ((expiredays == null) ? '' : ';expires=' + exdate.toGMTString())+ '; path='+window.nps.web_base_url+'/;';
+		document.cookie = c_name + '=' + escape(value) + ((expiredays == null) ? '' : ';expires=' + exdate.toGMTString())+ '; path='+npsBase()+'/;';
 	}
 
 	function getCookie (c_name) {
@@ -59,7 +65,7 @@
 	$.fn.cloudLang = function () {
 		$.ajax({
 			type: 'GET',
-			url: window.nps.web_base_url + '/static/page/languages.xml?v=20250107',
+			url: npsBase() + '/static/page/languages.xml?v=20250107',
 			dataType: 'xml',
 			success: function (xml) {
 				languages['content'] = xml2json($(xml).children())['content'];
@@ -67,7 +73,7 @@
 				languages['default'] = languages['content']['default'];
 				languages['navigator'] = (getCookie ('lang') || navigator.language || navigator.browserLanguage);
 				for(var key in languages['menu']){
-					$('#languagemenu').next().append('<li lang="' + key + '"><a><img src="' + window.nps.web_base_url + '/static/img/flag/' + key + '.png"> ' + languages['menu'][key] +'</a></li>');
+					$('#languagemenu').next().append('<li lang="' + key + '"><a><img src="' + npsBase() + '/static/img/flag/' + key + '.png"> ' + languages['menu'][key] +'</a></li>');
 					if ( key == languages['navigator'] ) languages['current'] = key;
 				}
 				$('#languagemenu').attr('lang',(languages['current'] || languages['default']));
