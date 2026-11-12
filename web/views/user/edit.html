@@ -45,8 +45,9 @@
                     <div class="form-group">
                         <label class="col-sm-2 control-label font-bold">可用端口范围</label>
                         <div class="col-sm-10">
-                            <input class="form-control" type="text" name="allow_ports" value="{{.u.AllowPorts}}" placeholder="如 9001-9009,10001；留空表示继承全局白名单">
-                            <span class="help-block m-b-none">仅对普通用户生效；只能收窄、不能超出 nps.conf 的全局 allow_ports。</span>
+                            <input class="form-control" type="text" name="allow_ports" value="{{.u.AllowPorts}}" placeholder="留空表示不限制用户级端口范围">
+                            <span class="help-block m-b-none">仅对普通用户生效；只能收窄、不能超出 nps.conf 的全局 allow_ports。新建用户自动分配的 100 个专属端口就保存在这里，可按需调整。</span>
+                            <span class="help-block m-b-none">编辑时清空表示「不限用户级范围」；专属端口块只在新建用户时自动分配，不会因编辑而被重新划走。</span>
                         </div>
                     </div>
                     <div class="form-group">

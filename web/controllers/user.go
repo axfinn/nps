@@ -42,6 +42,7 @@ func parseClientIds(s *UserController) []int {
 func (s *UserController) List() {
 	if s.Ctx.Request.Method == "GET" {
 		s.Data["menu"] = "user"
+		s.Data["port_pool"] = file.GetPortPool().Stats()
 		s.SetInfo("user")
 		s.display("user/list")
 		return
@@ -86,6 +87,12 @@ func (s *UserController) Add() {
 		AllowPorts: strings.TrimSpace(s.getEscapeString("allow_ports")),
 		Remark:     s.getEscapeString("remark"),
 		CreateTime: time.Now().Format("2006-01-02 15:04:05"),
+	}
+	// New normal users automatically receive one exclusive 100-port block
+	// from the user range. An explicit allow_ports value wins.
+	if _, err := file.GetPortPool().AssignUserBlock(u); err != nil {
+		s.AjaxErr(err.Error())
+		return
 	}
 	u.SetPassword(password)
 	if err := file.GetDb().NewUser(u); err != nil {

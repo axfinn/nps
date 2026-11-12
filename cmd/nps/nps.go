@@ -439,6 +439,7 @@ func run() {
 	// Bootstrap the user store on first start (idempotent).
 	file.GetDb().InitUsers(beego.AppConfig.String("web_username"), beego.AppConfig.String("web_password"))
 	tool.InitAllowPort()
+	tool.InitPortPool()
 	tool.StartSystemInfo()
 	timeout, err := beego.AppConfig.Int("disconnect_timeout")
 	if err != nil {

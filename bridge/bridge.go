@@ -536,6 +536,17 @@ loop:
 					tl.StripPre = t.StripPre
 					tl.MultiAccount = t.MultiAccount
 					if !client.HasTunnel(tl) {
+						// Ports in the shared range belong to the pool and can
+						// only be assigned automatically by the server; a npc
+						// config must not hard-code one of them. Permanently
+						// fixed ports are converted from the web UI instead.
+						if file.GetPortPool().Enabled() && file.GetPortPool().InSharedRange(tl.Port) &&
+							t.Mode != "secret" && t.Mode != "p2p" {
+							logs.Warn("shared pool port %d cannot be pinned by client config", tl.Port)
+							fail = true
+							c.WriteAddFail()
+							break loop
+						}
 						if err := file.GetDb().NewTask(tl); err != nil {
 							logs.Notice("Add task error ", err.Error())
 							fail = true

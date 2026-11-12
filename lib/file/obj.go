@@ -139,8 +139,12 @@ func (s *Client) HasHost(h *Host) bool {
 }
 
 type Tunnel struct {
-	Id           int
-	Port         int
+	Id   int
+	Port int
+	// PortPool == PortFromShared means the port was rented from the shared
+	// pool and must be returned when the tunnel stops. Empty for legacy or
+	// manually specified ports (old tasks.json files simply omit this field).
+	PortPool     string
 	ServerIp     string
 	Mode         string
 	Status       bool

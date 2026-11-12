@@ -1,6 +1,8 @@
 package controllers
 
 import (
+	"fmt"
+
 	"ehang.io/nps/lib/file"
 	"ehang.io/nps/server"
 	"ehang.io/nps/server/tool"
@@ -120,23 +122,53 @@ func (s *IndexController) Add() {
 			return
 		}
 
+		pool := file.GetPortPool()
 		if t.Port <= 0 {
-			t.Port = tool.GenerateServerPort(t.Mode, s.CurrentUser(), t.Client)
+			// Blank port: rent a random port from the shared pool, or fall
+			// back to this user's exclusive block when the pool is exhausted.
+			port, fromPool := tool.GenerateServerPort(t.Mode, s.CurrentUser(), t.Client, id)
+			if port <= 0 {
+				s.AjaxErr("No available port: the shared pool and your exclusive block are both full.")
+				return
+			}
+			t.Port = port
+			if fromPool {
+				// A newly rented port can be pinned right away: it then keeps
+				// this exact number forever instead of being recycled.
+				if s.GetBoolNoErr("pin_port") {
+					t.PortPool = file.PortFromFixed
+				} else {
+					t.PortPool = file.PortFromShared
+				}
+			}
+		} else if pool.Enabled() && pool.InSharedRange(t.Port) {
+			s.AjaxErr("Ports in the shared range are assigned automatically; leave the port blank or use your own exclusive block.")
+			return
 		}
 		if !tool.TestServerPort(t.Port, t.Mode, s.CurrentUser(), t.Client) {
+			pool.AbortShared(id)
 			s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
+			return
 		}
 		if t.Client.MaxTunnelNum != 0 && t.Client.GetTunnelNum() >= t.Client.MaxTunnelNum {
+			pool.AbortShared(id)
 			s.AjaxErr("The number of tunnels exceeds the limit")
+			return
 		}
 		if err := file.GetDb().NewTask(t); err != nil {
+			pool.AbortShared(id)
 			s.AjaxErr(err.Error())
+			return
 		}
 		if err := server.AddTask(t, s.CurrentUser()); err != nil {
+			pool.AbortShared(id)
+			// Roll back the half-created task so it cannot keep a pool port busy.
+			_ = file.GetDb().DelTask(id)
 			s.AjaxErr(err.Error())
-		} else {
-			s.AjaxOkWithId("add success", id)
+			return
 		}
+		pool.CommitShared(id)
+		s.AjaxOkWithId("add success", id)
 	}
 }
 
@@ -144,6 +176,7 @@ func (s *IndexController) Copy() {
 	oldId := s.GetIntNoErr("id")
 	if oldTask, err := file.GetDb().GetTask(oldId); err != nil {
 		s.error()
+		return
 	} else {
 		if client, err := file.GetDb().GetClient(oldTask.Client.Id); err != nil {
 			s.AjaxErr("modified error,the client is not exist")
@@ -153,9 +186,15 @@ func (s *IndexController) Copy() {
 		}
 
 		id := int(file.GetDb().JsonDb.GetTaskId())
+		pool := file.GetPortPool()
+		copyPort, fromPool := tool.GenerateServerPort(oldTask.Mode, s.CurrentUser(), oldTask.Client, id)
+		if copyPort <= 0 {
+			s.AjaxErr("No available port: the shared pool and your exclusive block are both full.")
+			return
+		}
 		newTask := &file.Tunnel{
 			Client:       oldTask.Client,
-			Port:         tool.GenerateServerPort(oldTask.Mode, s.CurrentUser(), oldTask.Client),
+			Port:         copyPort,
 			ServerIp:     oldTask.ServerIp,
 			Mode:         oldTask.Mode,
 			Target:       oldTask.Target,
@@ -168,21 +207,33 @@ func (s *IndexController) Copy() {
 			ProtoVersion: oldTask.ProtoVersion,
 			Flow:         &file.Flow{},
 		}
+		if fromPool {
+			newTask.PortPool = file.PortFromShared
+		}
 		if !tool.TestServerPort(newTask.Port, newTask.Mode, s.CurrentUser(), newTask.Client) {
+			pool.AbortShared(id)
 			s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
+			return
 		}
 
 		if newTask.Client.MaxTunnelNum != 0 && newTask.Client.GetTunnelNum() >= newTask.Client.MaxTunnelNum {
+			pool.AbortShared(id)
 			s.AjaxErr("The number of tunnels exceeds the limit")
+			return
 		}
 		if err := file.GetDb().NewTask(newTask); err != nil {
+			pool.AbortShared(id)
 			s.AjaxErr(err.Error())
+			return
 		}
 		if err := server.AddTask(newTask, s.CurrentUser()); err != nil {
+			pool.AbortShared(id)
+			_ = file.GetDb().DelTask(id)
 			s.AjaxErr(err.Error())
-		} else {
-			s.AjaxOkWithId("add success", id)
+			return
 		}
+		pool.CommitShared(id)
+		s.AjaxOkWithId("add success", id)
 	}
 }
 
@@ -203,6 +254,7 @@ func (s *IndexController) Edit() {
 	if s.Ctx.Request.Method == "GET" {
 		if t, err := file.GetDb().GetTask(id); err != nil {
 			s.error()
+			return
 		} else {
 			s.Data["t"] = t
 		}
@@ -211,6 +263,7 @@ func (s *IndexController) Edit() {
 	} else {
 		if t, err := file.GetDb().GetTask(id); err != nil {
 			s.error()
+			return
 		} else {
 			if client, err := file.GetDb().GetClient(s.GetIntNoErr("client_id")); err != nil {
 				s.AjaxErr("modified error,the client is not exist")
@@ -218,15 +271,42 @@ func (s *IndexController) Edit() {
 			} else {
 				t.Client = client
 			}
-			if s.GetIntNoErr("port") != t.Port {
-				t.Port = s.GetIntNoErr("port")
-
-				if t.Port <= 0 {
-					t.Port = tool.GenerateServerPort(t.Mode, s.CurrentUser(), t.Client)
+			pool := file.GetPortPool()
+			requestedPort := s.GetIntNoErr("port")
+			if requestedPort != t.Port {
+				if requestedPort <= 0 {
+					port, fromPool := tool.GenerateServerPort(t.Mode, s.CurrentUser(), t.Client, id)
+					if port <= 0 {
+						s.AjaxErr("No available port: the shared pool and your exclusive block are both full.")
+						return
+					}
+					t.Port = port
+					if fromPool {
+						t.PortPool = file.PortFromShared
+					} else {
+						t.PortPool = ""
+					}
+				} else {
+					if pool.Enabled() && pool.InSharedRange(requestedPort) && requestedPort != t.Port {
+						s.AjaxErr("Ports in the shared range are assigned automatically; leave the port blank or use your own exclusive block.")
+						return
+					}
+					t.Port = requestedPort
+					t.PortPool = ""
 				}
 
 				if !tool.TestServerPort(t.Port, t.Mode, s.CurrentUser(), t.Client) {
+					pool.AbortShared(id)
 					s.AjaxErr("The port cannot be opened because it may has been occupied or is no longer allowed.")
+					return
+				}
+			}
+			// Converting a random shared port into a permanent fixed port is
+			// allowed both from the edit form and the list button. PinShared
+			// checks for conflicts and flips the flag on the live tunnel.
+			if s.GetBoolNoErr("pin_port") && t.PortPool == file.PortFromShared {
+				if _, err := pool.PinShared(id); err != nil {
+					s.AjaxErr(err.Error())
 					return
 				}
 			}
@@ -242,7 +322,17 @@ func (s *IndexController) Edit() {
 			t.Target.LocalProxy = s.GetBoolNoErr("local_proxy")
 			file.GetDb().UpdateTask(t)
 			server.StopServer(t.Id)
-			server.StartTask(t.Id, s.CurrentUser())
+			// StopServer returns the shared port to the pool. Hold it again
+			// during the restart so a concurrent request cannot grab it.
+			if t.PortPool == file.PortFromShared {
+				userId := 0
+				if u := s.CurrentUser(); u != nil {
+					userId = u.Id
+				}
+				pool.HoldShared(id, t.Port, userId)
+			}
+			server.StartTask(t.Id, s.CurrentUser(), false)
+			pool.CommitShared(id)
 		}
 		s.AjaxOk("modified success")
 	}
@@ -252,6 +342,7 @@ func (s *IndexController) Stop() {
 	id := s.GetIntNoErr("id")
 	if err := server.StopServer(id); err != nil {
 		s.AjaxErr("stop error")
+		return
 	}
 	s.AjaxOk("stop success")
 }
@@ -266,10 +357,53 @@ func (s *IndexController) Del() {
 
 func (s *IndexController) Start() {
 	id := s.GetIntNoErr("id")
-	if err := server.StartTask(id, s.CurrentUser()); err != nil {
+	if err := server.StartTask(id, s.CurrentUser(), true); err != nil {
 		s.AjaxErr("start error")
 	}
 	s.AjaxOk("start success")
+}
+
+// PinPort converts a randomly rented shared port into a permanent fixed port
+// (action=pin), or turns it back into a temporary lease (action=unpin).
+// The port number itself never changes and the service does not need a
+// restart: the flag is persisted on the tunnel and the allocator immediately
+// starts treating it as permanently reserved.
+func (s *IndexController) PinPort() {
+	if s.Ctx.Request.Method != "POST" {
+		s.AjaxErr("invalid request")
+		return
+	}
+	id := s.GetIntNoErr("id")
+	t, err := file.GetDb().GetTask(id)
+	if err != nil || t == nil {
+		s.AjaxErr("tunnel not found")
+		return
+	}
+	if t.Client == nil || !s.CanManageClient(t.Client.Id) {
+		s.AjaxErr("permission denied")
+		return
+	}
+	pool := file.GetPortPool()
+	action := s.getEscapeString("action")
+	var port int
+	if action == "unpin" {
+		port, err = pool.UnpinShared(id)
+	} else {
+		port, err = pool.PinShared(id)
+	}
+	if err != nil {
+		s.AjaxErr(err.Error())
+		return
+	}
+	if err := file.GetDb().UpdateTask(t); err != nil {
+		s.AjaxErr(err.Error())
+		return
+	}
+	if action == "unpin" {
+		s.AjaxOk(fmt.Sprintf("port %d is temporary again", port))
+		return
+	}
+	s.AjaxOk(fmt.Sprintf("port %d is now fixed and never expires", port))
 }
 
 func (s *IndexController) HostList() {

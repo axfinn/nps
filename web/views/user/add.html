@@ -45,8 +45,9 @@
                     <div class="form-group">
                         <label class="col-sm-2 control-label font-bold">可用端口范围</label>
                         <div class="col-sm-10">
-                            <input class="form-control" type="text" name="allow_ports" placeholder="如 9001-9009,10001；留空表示继承全局白名单">
-                            <span class="help-block m-b-none">仅对普通用户生效；只能收窄、不能超出 nps.conf 的全局 allow_ports。该用户只能在其范围内新建隧道。</span>
+                            <input class="form-control" type="text" name="allow_ports" placeholder="留空自动分配 100 个专属端口">
+                            <span class="help-block m-b-none">新建普通用户留空时，自动从 40000-49999 分配一块连续的 100 个专属端口（如 40000-40099），仅本人可用且固定不变；手工填写则按填写值生效。超管不受此限制。</span>
+                            <span class="help-block m-b-none">建隧道时端口留空会从 50000-60000 共享池随机分配，停用 / 删除 / 客户端离线后自动归还，无需占用专属端口。</span>
                         </div>
                     </div>
                     <div class="form-group">

@@ -10,6 +10,18 @@
                         超级管理员可管理全部用户、客户端与全局设置；普通用户只能管理分配给自己的客户端，且只能使用自己的端口范围。
                         用户级端口范围不能超出 <code>nps.conf</code> 中的全局 <code>allow_ports</code> 白名单。
                     </div>
+                    {{if .port_pool.Enabled}}
+                    <div class="alert alert-success">
+                        <strong>端口池已启用</strong>：
+                        新建普通用户自动分配 <code>{{.port_pool.UserQuota}}</code> 个连续专属端口
+                        （专属段 <code>{{.port_pool.UserStart}}-{{.port_pool.UserEnd}}</code>，
+                        已用 <code>{{.port_pool.UserBlocksUsed}}/{{.port_pool.UserBlocksTotal}}</code> 块）；
+                        共享池 <code>{{.port_pool.SharedPortReport}}</code> 当前占用
+                        <code>{{.port_pool.SharedUsed}}/{{.port_pool.SharedTotal}}</code>，
+                        建隧道端口留空即随机分配，停用 / 删除 / 客户端离线后自动归还；
+                        已转为固定端口 <code>{{.port_pool.FixedUsed}}</code> 个（永不过期、不再归还）。
+                    </div>
+                    {{end}}
                     <div id="toolbar">
                         <a href="{{.web_base_url}}/user/add" class="btn btn-primary dim">
                             <i class="fa fa-fw fa-lg fa-plus"></i> 新增用户

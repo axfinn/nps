@@ -21,8 +21,9 @@ func init() {
 		for {
 			<-s
 			beego.LoadAppConfig("ini", filepath.Join(common.GetRunPath(), "conf", "nps.conf"))
-			// allow_ports is cached in memory; refresh it on reload.
+			// allow_ports and the port pool ranges are cached in memory.
 			tool.InitAllowPort()
+			tool.InitPortPool()
 		}
 	}()
 }

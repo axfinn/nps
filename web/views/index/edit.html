@@ -61,6 +61,19 @@
                         <div class="col-sm-10">
                             <input value="{{.t.Port}}" class="form-control" type="text" name="port" placeholder=""
                                    langtag="info-suchasport">
+                            {{if eq .t.PortPool "shared"}}
+                            <span class="help-block m-b-none"><span class="label label-info">共享池端口</span> 当前端口为自动分配，停用 / 删除 / 客户端离线后自动归还，再次启动会重新取一个新端口。</span>
+                            <label class="checkbox-inline" style="margin-top:8px;">
+                                <input type="checkbox" name="pin_port" value="1"> 转为固定端口（保持当前端口号，不再归还、不过期）
+                            </label>
+                            {{else if eq .t.PortPool "fixed"}}
+                            <span class="help-block m-b-none"><span class="label label-success">固定端口</span> 该端口已永久固定：停用、重启、客户端离线都不会换号或归还。如需恢复为临时端口，请在隧道列表点解锁按钮。</span>
+                            {{else}}
+                            <span class="help-block m-b-none">清空端口则自动从共享池 50000-60000 随机分配；也可填写自己专属端口段内的固定端口。</span>
+                            <label class="checkbox-inline" style="margin-top:8px;">
+                                <input type="checkbox" name="pin_port" value="1"> 随机分配后直接固定为永久端口
+                            </label>
+                            {{end}}
                         </div>
                     </div>
                     {{if eq true .allow_local_proxy}}

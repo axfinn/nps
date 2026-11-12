@@ -68,7 +68,7 @@ func DealBridgeTask() {
 				}
 			}
 		case tunnel := <-Bridge.OpenTask:
-			StartTask(tunnel.Id, nil)
+			_ = StartTask(tunnel.Id, nil, false)
 		case s := <-Bridge.SecretChan:
 			logs.Trace("New secret connection, addr", s.Conn.Conn.RemoteAddr())
 			if t := file.GetDb().GetTaskByMd5Password(s.Password); t != nil {
@@ -176,9 +176,22 @@ func StopServer(id int) error {
 			t.Status = false
 			logs.Info("close port %d,remark %s,client id %d,task id %d", t.Port, t.Remark, t.Client.Id, t.Id)
 			file.GetDb().UpdateTask(t)
+			// Status=false returns a temporary shared port to the pool; a
+			// pinned (fixed) port stays reserved for this tunnel forever.
+			// This hook clears any in-flight lease and logs the hand-back.
+			file.GetPortPool().ReleaseShared(id)
 		}
 		//delete(RunList, id)
 		RunList.Delete(id)
+		return nil
+	}
+	// The service may already be gone (client offline, start failure). Still
+	// mark the task stopped so a shared port is never leaked by a stale record.
+	if t, err := file.GetDb().GetTask(id); err == nil && t.Status {
+		t.Status = false
+		file.GetDb().UpdateTask(t)
+		file.GetPortPool().ReleaseShared(id)
+		logs.Info("stop server id %d (already offline), shared port returned", id)
 		return nil
 	}
 	return errors.New("task is not running")
@@ -218,14 +231,34 @@ func AddTask(t *file.Tunnel, u *file.User) error {
 }
 
 // start task
-func StartTask(id int, u *file.User) error {
-	if t, err := file.GetDb().GetTask(id); err != nil {
+// reallocate is true when a user explicitly restarts a stopped shared tunnel:
+// its old port may already have been rented to somebody else, so a fresh one
+// is picked. Editing a tunnel passes false to keep the port it just assigned.
+func StartTask(id int, u *file.User, reallocate bool) error {
+	t, err := file.GetDb().GetTask(id)
+	if err != nil {
 		return err
-	} else {
-		AddTask(t, u)
-		t.Status = true
+	}
+	pool := file.GetPortPool()
+	if reallocate && pool.Enabled() && pool.IsSharedPortForTask(id) && !t.Status {
+		userId := 0
+		if u != nil {
+			userId = u.Id
+		}
+		port, err := pool.AllocateShared(t.Mode, id, userId, t.Port)
+		if err != nil {
+			return err
+		}
+		t.Port = port
 		file.GetDb().UpdateTask(t)
 	}
+	if err := AddTask(t, u); err != nil {
+		pool.AbortShared(id)
+		return err
+	}
+	t.Status = true
+	file.GetDb().UpdateTask(t)
+	pool.CommitShared(id)
 	return nil
 }
 
@@ -237,6 +270,9 @@ func DelTask(id int) error {
 			return err
 		}
 	}
+	// Deleting the record is what frees a shared port; this also covers the
+	// "client offline" path via DelTunnelAndHostByClientId.
+	file.GetPortPool().ReleaseShared(id)
 	return file.GetDb().DelTask(id)
 }
 

@@ -35,6 +35,24 @@
 </div>
 
 <script>
+    // Convert a randomly rented shared port into a permanent fixed one (or
+    // back). The port number never changes and no service restart is needed.
+    window.togglePinPort = function (id, action) {
+        var tip = action === 'unpin'
+            ? '解除固定？该端口将恢复为临时共享端口，停用后会重新随机分配。'
+            : '把当前随机端口固定下来？固定后端口永不变，停用 / 重启 / 客户端离线都不会归还，也不会过期。';
+        if (!confirm(tip)) return;
+        $.ajax({
+            type: "POST",
+            url: "{{.web_base_url}}/index/pinport",
+            data: {id: id, action: action},
+            success: function (res) {
+                alert(langreply(res.msg));
+                if (res.status) document.location.reload();
+            }
+        });
+    };
+
     name = '{{.name}}:'.replace(/\s*/g,"")
     $('#langtag').attr('langtag','page-list' + name.replace(/:.*/,"")).next().text(name.split(":")[1])
 
@@ -139,7 +157,16 @@
                 title: '<span langtag="word-port"></span>',//标题
                 halign: 'center',
                 sortable: true, //启用排序
-                visible: true//false表示不显示
+                visible: true,//false表示不显示
+                formatter: function (value, row, index) {
+                    if (row.PortPool === 'shared') {
+                        return value + ' <span class="label label-info" title="共享池端口：停用 / 删除 / 客户端离线后自动归还，可点图钉转为固定">共享</span>'
+                    }
+                    if (row.PortPool === 'fixed') {
+                        return value + ' <span class="label label-success" title="固定端口：永不归还、停用与重启都不换号、不过期">固定</span>'
+                    }
+                    return value
+                }
             },
             {
                 field: 'address',//域值
@@ -215,7 +242,7 @@
                 title: '<span langtag="word-option"></span>',//内容
                 align: 'center',
                 halign: 'center',
-                width: '200px',
+                width: '240px',
                 visible: true,//false表示不显示
                 formatter: function (value, row, index) {
                     btn_group = '<div class="btn-group">'
@@ -233,7 +260,15 @@
                     btn_group += '" class="btn btn-outline btn-success"><i class="fa fa-edit"></i></a>'
 
                     btn_group += "<a onclick=\"submitform('copy', '{{.web_base_url}}/index/copy', {'id':" + row.Id
-                    btn_group += '})" class="btn btn-outline btn-primary"><i class="fa fa-copy"></i></a></div>'
+                    btn_group += '})" class="btn btn-outline btn-primary"><i class="fa fa-copy"></i></a>'
+                    if (row.PortPool === 'shared') {
+                        btn_group += "<a onclick=\"window.togglePinPort(" + row.Id + ",'pin')\""
+                        btn_group += ' class="btn btn-outline btn-default" title="转为固定端口：不再归还、不过期"><i class="fa fa-thumb-tack"></i></a>'
+                    } else if (row.PortPool === 'fixed') {
+                        btn_group += "<a onclick=\"window.togglePinPort(" + row.Id + ",'unpin')\""
+                        btn_group += ' class="btn btn-outline btn-default" title="解除固定，恢复为临时共享端口"><i class="fa fa-unlock"></i></a>'
+                    }
+                    btn_group += '</div>'
                     return btn_group
                 }
             }

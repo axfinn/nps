@@ -329,6 +329,12 @@ func (self *LoginController) Register() {
 			Remark:     "自助注册",
 			CreateTime: time.Now().Format("2006-01-02 15:04:05"),
 		}
+		if _, err := file.GetPortPool().AssignUserBlock(u); err != nil {
+			_ = file.GetDb().DelClient(c.Id)
+			self.Data["json"] = map[string]interface{}{"status": 0, "msg": err.Error()}
+			self.ServeJSON()
+			return
+		}
 		u.SetPassword(password)
 		if err := file.GetDb().NewUser(u); err != nil {
 			_ = file.GetDb().DelClient(c.Id)
