@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -567,6 +568,34 @@ func (p *PortAllocator) PickFromAllowed(allowed []int, mode string) (int, bool) 
 	start := rand.Intn(len(allowed))
 	for i := 0; i < len(allowed); i++ {
 		port := allowed[(start+i)%len(allowed)]
+		if port <= 0 || port > 65535 || blocked[port] {
+			continue
+		}
+		if !p.probe(port, mode) {
+			continue
+		}
+		return port, true
+	}
+	return 0, false
+}
+
+// PickSmallestFromAllowed is like PickFromAllowed but always returns the
+// lowest-numbered free port in the whitelist, so the default port a tunnel
+// gets is predictable: the smallest free port inside the user's exclusive
+// block. Shared pool ports are intentionally excluded (they are handed out
+// randomly and recycled), so a normal user filling their own block sees a
+// stable, growing-from-the-bottom assignment.
+func (p *PortAllocator) PickSmallestFromAllowed(allowed []int, mode string) (int, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(allowed) == 0 {
+		return 0, false
+	}
+	p.sweepLocked()
+	blocked := p.blockedPortsLocked()
+	ports := append([]int(nil), allowed...)
+	sort.Ints(ports)
+	for _, port := range ports {
 		if port <= 0 || port > 65535 || blocked[port] {
 			continue
 		}

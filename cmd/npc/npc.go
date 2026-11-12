@@ -465,7 +465,13 @@ func systemPro(flag string, serAddr string, vkey string, tls bool) {
 		logs.SetLogFuncCallDepth(3)
 		logs.SetLogger(logs.AdapterFile, `{"level":`+*logLevel+`,"filename":"`+*logPath+`","daily":false,"maxlines":100000,"color":true}`)
 
-		install.InstallNpc()
+		binPath := install.InstallNpc()
+		// Point the systemd/service ExecStart at the installed binary
+		// (/usr/bin/npc or /usr/local/bin/npc) instead of the transient path
+		// the user launched `npc install` from, otherwise the service breaks
+		// after reboot or when the original binary moves.
+		svcConfig.Executable = binPath
+		s, _ = service.New(prg, svcConfig)
 		err := service.Control(s, "install")
 		if err != nil {
 			fmt.Println("隧道["+vkey+"]安装到系统服务失败", err)

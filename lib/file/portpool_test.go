@@ -261,6 +261,29 @@ func TestPickFromAllowedSkipsBusyPorts(t *testing.T) {
 	}
 }
 
+// TestPickSmallestFromAllowedPrefersLowest verifies the new-tunnel default
+// picks the lowest-numbered free port in the user's exclusive block, not a
+// random one.
+func TestPickSmallestFromAllowedPrefersLowest(t *testing.T) {
+	a, store := newTestAllocator(t, testPoolConfig())
+	allowed := common.GetPorts("40000-40005")
+	store.addTask(&Tunnel{Id: 1, Port: 40000, Status: true})
+	store.addTask(&Tunnel{Id: 2, Port: 40001, Status: true})
+	port, ok := a.PickSmallestFromAllowed(allowed, "tcp")
+	if !ok || port != 40002 {
+		t.Fatalf("PickSmallestFromAllowed = %d, %t; want 40002, true", port, ok)
+	}
+	// When everything is busy it must report failure rather than pick a used
+	// port.
+	store.addTask(&Tunnel{Id: 3, Port: 40002, Status: true})
+	store.addTask(&Tunnel{Id: 4, Port: 40003, Status: true})
+	store.addTask(&Tunnel{Id: 5, Port: 40004, Status: true})
+	store.addTask(&Tunnel{Id: 6, Port: 40005, Status: true})
+	if _, ok := a.PickSmallestFromAllowed(allowed, "tcp"); ok {
+		t.Fatal("expected no free port in a fully used block")
+	}
+}
+
 func TestSystemPortsAreNeverAllocated(t *testing.T) {
 	cfg := testPoolConfig()
 	cfg.SharedEnd = 50002

@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,12 +31,16 @@ import (
 var staticFiles embed.FS
 
 var (
-	cl        *client.TRPClient
-	running   bool
-	closing   bool
-	mu        sync.Mutex
-	curConfig Config
-	svcStatus string
+	cl               *client.TRPClient
+	running          bool
+	closing          bool
+	mu               sync.Mutex
+	curConfig        Config
+	svcStatus        string
+	httpServer       *http.Server
+	serviceMode      bool // 本次是否由开机自启服务拉起
+	trayDisabled     bool // -no-tray
+	autoOpenDisabled bool // -no-open
 )
 
 type Config struct {
@@ -47,84 +50,93 @@ type Config struct {
 	TlsEnable         bool   `json:"tls_enable"`
 	ProxyUrl          string `json:"proxy_url"`
 	DisconnectTimeout int    `json:"disconnect_timeout"`
+	WebPort           int    `json:"web_port"` // 本地管理面板端口，0/空表示使用默认 9666
 }
 
 type Status struct {
-	Running   bool   `json:"running"`
-	Version   string `json:"version"`
-	Config    Config `json:"config"`
-	Logs      string `json:"logs"`
-	SvcStatus string `json:"svc_status"`
+	Running       bool   `json:"running"`
+	Version       string `json:"version"`
+	Config        Config `json:"config"`
+	Logs          string `json:"logs"`
+	SvcStatus     string `json:"svc_status"`
+	WebPort       int    `json:"web_port"` // 本次实际监听端口（可能与配置不同）
+	WebURL        string `json:"web_url"`
+	PreferredPort int    `json:"preferred_port"`
+	PortFallback  bool   `json:"port_fallback"` // 首选端口被占用，已自动改用随机端口
+	TrayRunning   bool   `json:"tray_running"`
+	PortFile      string `json:"port_file"`
 }
 
-// kardianos/service 在 init() 里向全局 flag 注册了 -service 标志。
-// 我们这里复用同一个变量名以便在 main() 早期判断是否以服务模式启动。
-var serviceFlag = flag.String("service", "", "由 service 平台调用 (run|start|stop|install|uninstall 等)，请勿手动设置")
-
-// getAvailablePort 获取一个可用的随机端口
-func getAvailablePort() (int, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, err
-	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port, nil
-}
+// 兼容旧版本参数。注意 kardianos/service 并不会注册 -service 标志，
+// 真正判断是否服务模式改用显式的 -service-run（由 plist/unit 写入），不再靠 ppid 猜测。
+var serviceFlag = flag.String("service", "", "兼容旧版服务参数（内部使用）")
 
 func main() {
 	// 命令行参数（一次性注册所有 flag，避免重复 flag.Parse 报错）
-	port := flag.Int("port", 0, "指定Web GUI端口 (默认自动选择可用端口)")
+	port := flag.Int("port", 0, "本地管理面板端口（默认 9666；被占用时自动随机分配）")
 	installServiceFlag := flag.Bool("install-service", false, "安装系统服务 (内部使用)")
-	noSudo := flag.Bool("no-sudo", false, "不请求管理员权限（跳过自动提权）")
+	noSudo := flag.Bool("no-sudo", false, "兼容旧参数：不再自动提权")
 	homeFlag := flag.String("home", "", "用户主目录（root 上下文通过此参数找到 GUI 写入的用户配置）")
+	serviceRunFlag := flag.Bool("service-run", false, "以开机自启服务模式运行（由服务配置写入，内部使用）")
+	noTrayFlag := flag.Bool("no-tray", false, "不显示状态栏图标")
+	noOpenFlag := flag.Bool("no-open", false, "启动时不自动打开浏览器（无头/测试环境）")
 	flag.Parse()
+
+	_ = noSudo
+	trayDisabled = *noTrayFlag
+	autoOpenDisabled = *noOpenFlag
+	serviceMode = *serviceRunFlag || !service.Interactive() || *serviceFlag == "run"
 
 	logs.SetLogger("store")
 
-	// 调试信息
 	logs.Info("========== NPC GUI 启动 ==========")
 	logs.Info("操作系统: %s", runtime.GOOS)
-	logs.Info("参数: noSudo=%v, installServiceFlag=%v, serviceFlag=%q, homeFlag=%q",
-		*noSudo, *installServiceFlag, *serviceFlag, *homeFlag)
+	logs.Info("参数: installServiceFlag=%v, serviceFlag=%q, serviceRun=%v, serviceMode=%v, port=%d, homeFlag=%q",
+		*installServiceFlag, *serviceFlag, *serviceRunFlag, serviceMode, *port, *homeFlag)
 	logs.Info("================================")
 
-	// 1) 服务模式：把控制权交给 kardianos/service，由它调用 prg.Start 并阻塞。
-	//    注意：kardianos/service 不会自动拦截 -service run；必须显式调用 s.Run()。
-	if !service.Interactive() || *serviceFlag == "run" {
+	// 1) 服务模式：由 plist/unit 带 -service-run 拉起。服务进程同样启动 Web 面板和状态栏，
+	//    否则开机自启后就只剩一个无界面的隧道进程，用户根本找不到管理地址。
+	if serviceMode {
 		runAsService()
 		return
 	}
 
-	// 2) 安装模式（由 osascript 以 root 身份调用 -install-service），完成 plist/unit 安装
+	// 2) 安装模式（Linux 提权上下文调用），完成 unit/plist 安装
 	if *installServiceFlag {
 		runInstallService(*homeFlag)
 		return
 	}
 
-	// 3) 双击检测 + 自动提权：仅当用户主动以 GUI 形式启动时触发，
-	//    排除 -no-sudo、-install-service、-service* 模式。
-	if runtime.GOOS == "darwin" && !*noSudo && !isRunningInTerminal() {
-		maybeRelaunchWithSudo(port)
-	}
-
+	// 3) 交互模式。不再在双击时自动提权重启整个 GUI：
+	//    root 进程拿不到用户 Aqua 会话，显示不了状态栏，配置目录也会漂移到 /var/root。
+	//    默认安装的是「用户级登录自启项」，普通用户权限即可完成，无需 sudo。
 	runGUI(*port)
 }
 
-// runAsService 以系统服务模式运行：阻塞、调用 prg.Start()、后台拉起 client 连接。
+// runAsService 以系统服务（开机自启）模式运行：阻塞、调用 prg.Start() 拉起 client 连接。
+// 与旧实现最大的不同：服务进程同样启动 Web 面板和状态栏。否则开机后只剩一个
+// 无界面的隧道进程，用户既找不到管理地址，也收不到端口提醒。
 func runAsService() {
 	logs.Info("以服务模式启动 (service=%q)", *serviceFlag)
+
+	curConfig = loadConfig()
+	if err := startWebPanel(0, true); err != nil {
+		logs.Error("管理面板启动失败（隧道服务仍会继续）: %v", err)
+	}
 
 	svcConfig := getServiceConfig()
 	prg := &npcService{}
 	s, err := service.New(prg, svcConfig)
 	if err != nil {
 		logs.Error("创建服务失败: %v", err)
+		shutdownPanel()
 		os.Exit(1)
 	}
 	if err := s.Run(); err != nil {
 		logs.Error("服务运行失败: %v", err)
-		os.Exit(1)
 	}
+	shutdownPanel()
 }
 
 // runInstallService 在 root 上下文（macOS osascript / sudo）下执行实际的 plist/unit 安装。
@@ -176,23 +188,28 @@ func runInstallService(home string) {
 	os.Exit(0)
 }
 
-// runGUI 启动 HTTP Web GUI（普通用户交互模式）。
-func runGUI(port int) {
-	logs.Info("NPC Web GUI v%s starting...", version.VERSION)
-
-	// 加载配置
-	curConfig = loadConfig()
-	svcStatus = getServiceStatus()
-
-	// 静态文件
-	staticFS, err := fs.Sub(staticFiles, "static")
+// startWebPanel 启动本地管理面板（HTTP）与状态栏，交互模式和服务模式共用。
+// 端口优先级：-port > 配置 web_port > 默认 9666；首选端口被占用时自动随机分配。
+// bootNotice=true 时额外发一次开机提醒（服务自启场景）。
+func startWebPanel(cliPort int, bootNotice bool) error {
+	preferred := resolvePreferredPort(cliPort, curConfig.WebPort)
+	ln, actualPort, fallback, err := listenWithFallback(preferred)
 	if err != nil {
-		logs.Error("加载静态文件失败: %v", err)
-		fmt.Printf("加载静态文件失败: %v\n", err)
-		os.Exit(1)
+		return err
+	}
+	setWebState(preferred, actualPort, fallback)
+	url := fmt.Sprintf("http://127.0.0.1:%d", actualPort)
+
+	if err := writePortFile(newPortInfo(preferred, actualPort, fallback)); err != nil {
+		logs.Warn("写入端口文件失败（不影响面板使用）: %v", err)
 	}
 
-	// 创建路由
+	staticFS, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		_ = ln.Close()
+		return fmt.Errorf("加载静态文件失败: %w", err)
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(staticFS)))
 	mux.HandleFunc("/api/status", handleStatus)
@@ -200,75 +217,104 @@ func runGUI(port int) {
 	mux.HandleFunc("/api/stop", handleStop)
 	mux.HandleFunc("/api/config", handleConfig)
 	mux.HandleFunc("/api/config/clear", handleClearConfig)
+	mux.HandleFunc("/api/port", handlePort)
 	mux.HandleFunc("/api/service/install", handleServiceInstall)
 	mux.HandleFunc("/api/service/uninstall", handleServiceUninstall)
 
-	// 确定端口
-	var listenPort int
-	if port > 0 {
-		listenPort = port
-	} else {
-		availPort, err := getAvailablePort()
-		if err != nil {
-			fmt.Printf("获取可用端口失败: %v\n", err)
-			os.Exit(1)
-		}
-		listenPort = availPort
-	}
-
-	addr := fmt.Sprintf("127.0.0.1:%d", listenPort)
-	fmt.Printf("NPC Web GUI v%s\n", version.VERSION)
-	fmt.Printf("请打开浏览器访问: http://%s\n", addr)
-	fmt.Printf("按 Ctrl+C 退出\n")
-
 	server := &http.Server{
-		Addr:         addr,
 		Handler:      mux,
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
+	mu.Lock()
+	httpServer = server
+	mu.Unlock()
 
-	// 自动打开浏览器
+	// 直接复用已绑定的 listener，避免「先探测再重新 bind」期间端口被别的进程抢走。
 	go func() {
-		time.Sleep(800 * time.Millisecond)
-		openBrowser("http://" + addr)
-	}()
-
-	// 优雅关闭
-	go func() {
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-		<-sigCh
-
-		logs.Info("收到关闭信号，正在停止...")
-		fmt.Println("\n正在关闭...")
-
-		// 停止客户端
-		mu.Lock()
-		if running && cl != nil {
-			closing = true
-			running = false
-			cl.Close()
-			cl = nil
-		}
-		mu.Unlock()
-
-		// 优雅关闭 HTTP 服务器
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(ctx); err != nil {
-			logs.Error("关闭服务器失败: %v", err)
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+			logs.Error("管理面板异常退出: %v", err)
 		}
 	}()
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if !trayDisabled {
+		tray.Start(actualPort, url, fallback, bootNotice)
+	} else if bootNotice {
+		go bootNotify(actualPort, url, fallback)
+	}
+
+	if fallback {
+		logs.Warn("首选端口 %d 不可用，本次面板地址改为 %s", preferred, url)
+		fmt.Printf("⚠ 端口 %d 已被占用，已自动改用 %d：%s\n", preferred, actualPort, url)
+	}
+	logs.Info("管理面板已就绪: %s", url)
+	return nil
+}
+
+// runGUI 交互模式：启动面板后自动打开浏览器，并等待退出信号。
+func runGUI(cliPort int) {
+	logs.Info("NPC Web GUI v%s starting...", version.VERSION)
+
+	curConfig = loadConfig()
+	svcStatus = getServiceStatus()
+
+	if err := startWebPanel(cliPort, false); err != nil {
 		fmt.Printf("启动失败: %v\n", err)
-		fmt.Printf("请检查端口 %d 是否被占用\n", listenPort)
 		os.Exit(1)
 	}
 
+	port, url, preferred, fallback := getWebState()
+	fmt.Printf("NPC Web GUI v%s\n", version.VERSION)
+	fmt.Printf("管理面板: %s\n", url)
+	if fallback {
+		fmt.Printf("注意: 首选端口 %d 已被占用，已自动改用 %d\n", preferred, port)
+	}
+	fmt.Printf("端口文件: %s\n", getPortFilePath())
+	fmt.Printf("状态栏点击图标即可打开面板；按 Ctrl+C 退出\n")
+
+	if !autoOpenDisabled {
+		go func() {
+			time.Sleep(800 * time.Millisecond)
+			openBrowser(url)
+		}()
+	}
+
+	waitForShutdown()
+}
+
+func waitForShutdown() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+	logs.Info("收到关闭信号，正在停止...")
+	fmt.Println("\n正在关闭...")
+	shutdownPanel()
 	logs.Info("NPC Web GUI 已退出")
+}
+
+func shutdownPanel() {
+	mu.Lock()
+	if running && cl != nil {
+		closing = true
+		running = false
+		cl.Close()
+		cl = nil
+	}
+	srv := httpServer
+	httpServer = nil
+	mu.Unlock()
+
+	tray.Stop()
+	removePortFile()
+
+	if srv != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			logs.Error("关闭服务器失败: %v", err)
+		}
+	}
 }
 
 // maybeRelaunchWithSudo 在 macOS 上以非终端方式启动时，弹出密码框请求 sudo 重启。
@@ -349,6 +395,14 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	mu.Unlock()
 
+	port, url, preferred, fallback := getWebState()
+	status.WebPort = port
+	status.WebURL = url
+	status.PreferredPort = preferred
+	status.PortFallback = fallback
+	status.TrayRunning = tray.Running()
+	status.PortFile = getPortFilePath()
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(status)
 }
@@ -375,6 +429,9 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg.DisconnectTimeout <= 0 {
 			cfg.DisconnectTimeout = 60
 		}
+		if cfg.WebPort < 0 || cfg.WebPort > 65535 {
+			cfg.WebPort = 0
+		}
 
 		mu.Lock()
 		curConfig = cfg
@@ -392,6 +449,47 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+}
+
+// handlePort 允许用户自定义本地管理面板端口。
+// 端口在进程启动时绑定，改动保存后需重启才生效；想立即指定可用 -port 命令行参数。
+// 无论配置成什么，被占用时都会自动随机分配，并把实际地址写进端口文件和状态栏。
+func handlePort(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		WebPort int `json:"web_port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "参数解析失败: "+err.Error(), 400)
+		return
+	}
+	if req.WebPort < 0 || req.WebPort > 65535 {
+		http.Error(w, "端口不合法（1-65535，0 表示使用默认 9666）", 400)
+		return
+	}
+
+	mu.Lock()
+	curConfig.WebPort = req.WebPort
+	cfg := curConfig
+	mu.Unlock()
+
+	if err := saveConfig(cfg); err != nil {
+		http.Error(w, "保存端口失败: "+err.Error(), 500)
+		return
+	}
+	_, currentURL, _, _ := getWebState()
+	logs.Info("面板端口已设为 %d（重启后生效）", req.WebPort)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":               true,
+		"web_port":         req.WebPort,
+		"current_url":      currentURL,
+		"restart_required": true,
+	})
 }
 
 func handleClearConfig(w http.ResponseWriter, r *http.Request) {
@@ -513,19 +611,60 @@ func runClientLoop(cfg Config) {
 }
 
 // 系统服务相关
+
+// darwinLaunchdConfig 自定义 plist 模板。
+// kardianos 的默认模板把 StandardOutPath/StandardErrorPath 写死在 /usr/local/var/log/，
+// 用户级 LaunchAgent 以普通用户身份运行没有该目录的写权限，会直接导致 launchd 启动失败。
+// 这里去掉不可写的 stdout 重定向，日志由 store logger 与端口文件承担。
+const darwinLaunchdConfig = `<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd" >
+<plist version='1.0'>
+  <dict>
+    <key>Label</key>
+    <string>{{html .Name}}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{html .Path}}</string>
+    {{range .Config.Arguments}}
+      <string>{{html .}}</string>
+    {{end}}
+    </array>
+    {{if .WorkingDirectory}}<key>WorkingDirectory</key>
+    <string>{{html .WorkingDirectory}}</string>{{end}}
+    <key>SessionCreate</key>
+    <{{bool .SessionCreate}}/>
+    <key>KeepAlive</key>
+    <{{bool .KeepAlive}}/>
+    <key>RunAtLoad</key>
+    <{{bool .RunAtLoad}}/>
+    <key>Disabled</key>
+    <false/>
+  </dict>
+</plist>
+`
+
 func getServiceConfig() *service.Config {
 	options := make(service.KeyValue)
 	svcConfig := &service.Config{
 		Name:        "npc-gui",
 		DisplayName: "NPC 内网穿透客户端",
-		Description: "NPS内网穿透客户端服务",
+		Description: "NPS内网穿透客户端（本地管理面板 + 状态栏 + 隧道）",
 		Option:      options,
+		// 显式标记服务模式，不再依赖 os.Getppid()==1 去猜。
+		// 加了 SessionCreate 的 LaunchAgent 用 ppid 判断并不可靠。
+		Arguments: []string{"-service-run"},
 	}
 
 	if runtime.GOOS == "darwin" {
-		// macOS：默认走系统级 LaunchDaemon（/Library/LaunchDaemons/），真正做到开机自启。
+		// 用户级 LaunchAgent（~/Library/LaunchAgents）：普通用户权限即可安装，
+		// 且进程活在登录用户的 Aqua 会话里 —— 状态栏图标和「点击打开浏览器」
+		// 都必须依赖图形会话，系统级 LaunchDaemon（root）拿不到。
+		svcConfig.Option["UserService"] = true
+		svcConfig.Option["SessionCreate"] = true
 		svcConfig.Option["RunAtLoad"] = true
 		svcConfig.Option["KeepAlive"] = true
+		svcConfig.Option["LaunchdConfig"] = darwinLaunchdConfig
 	} else if !common.IsWindows() {
 		// Linux: systemd 配置
 		svcConfig.Dependencies = []string{
@@ -613,9 +752,20 @@ func installStableBinary() (string, error) {
 		destDir = filepath.Join(os.Getenv("ProgramData"), "npc")
 		destPath = filepath.Join(destDir, "npc_gui.exe")
 	case "darwin":
-		// macOS root 安装：使用系统级 LaunchDaemon 的常见路径
-		destDir = "/usr/local/bin"
-		destPath = "/usr/local/bin/npc_gui"
+		if os.Geteuid() == 0 {
+			// root 上下文（兼容 -install-service）保持系统路径
+			destDir = "/usr/local/bin"
+			destPath = "/usr/local/bin/npc_gui"
+		} else {
+			// 用户级 LaunchAgent：复制到用户目录，全程不需要 sudo。
+			// 旧实现固定写 /usr/local/bin，普通用户安装必然失败。
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("获取用户主目录失败: %w", err)
+			}
+			destDir = filepath.Join(home, "Library", "Application Support", "npc")
+			destPath = filepath.Join(destDir, "npc_gui")
+		}
 	default:
 		// Linux：使用 /usr/local/bin
 		destDir = "/usr/local/bin"
@@ -732,18 +882,15 @@ func handleServiceUninstall(w http.ResponseWriter, r *http.Request) {
 //   - Linux 普通用户：直接尝试 install，失败则尝试 pkexec 提权，再失败提示用户手动 sudo 重跑
 //   - Windows：直接尝试，失败提示以管理员身份运行
 func installServiceWithPrivilege(cfg Config) error {
-	// 已经是 root：直接做完整安装流程
-	if os.Geteuid() == 0 {
+	// macOS 现在安装的是用户级 LaunchAgent，普通用户即可完成，全程不需要 sudo。
+	// 旧实现里先试用户级、失败再 escalateViaOsascript()；而该函数在「非终端」
+	// （即最常见的双击运行）时会直接返回「请在终端运行」，导致安装必然失败。
+	if runtime.GOOS == "darwin" {
 		return doInstall(cfg)
 	}
 
-	// macOS：先试用户级，失败再 osascript 提权走系统级
-	if runtime.GOOS == "darwin" {
-		exePath, _ := os.Executable()
-		if testInstallAsUser(exePath, cfg) {
-			return nil
-		}
-		return escalateViaOsascript()
+	if os.Geteuid() == 0 {
+		return doInstall(cfg)
 	}
 
 	// Linux：尝试 pkexec 提权
@@ -897,8 +1044,10 @@ func doInstall(cfg Config) error {
 		return fmt.Errorf("复制二进制到稳定路径失败: %w", err)
 	}
 
+	// 用户级安装没有 /etc/npc 的写权限，同步系统配置只做 best-effort；
+	// 服务的配置读取已改为优先用户配置目录，不依赖这一步成功。
 	if err := saveSystemConfig(cfg); err != nil {
-		return fmt.Errorf("保存系统配置失败: %w", err)
+		logs.Info("同步系统配置跳过（通常需要 root）: %v", err)
 	}
 
 	svcConfig := getServiceConfig()
@@ -1020,17 +1169,29 @@ func getSystemConfigPath() string {
 }
 
 func saveConfig(cfg Config) error {
-	return saveJSON(getUserConfigPath(), cfg, 0644)
+	if err := saveJSON(getUserConfigPath(), cfg, 0644); err != nil {
+		return err
+	}
+	// 尽力同步给以 root 运行的旧版服务；普通用户无权限时忽略即可。
+	if err := saveSystemConfig(cfg); err != nil {
+		logs.Info("同步系统配置跳过（通常需要 root）: %v", err)
+	}
+	return nil
 }
 
 func loadConfig() Config {
-	// 优先读系统配置（service install 时写进去的），fallback 用户配置
-	cfg, err := readConfigFile(getSystemConfigPath())
+	// 优先读用户配置（GUI 保存的位置），再 fallback 到系统配置。
+	// 旧实现优先 /etc/npc：用户在 GUI 改了配置，服务却仍读旧值，是「装完服务
+	// 连接参数不对」的常见原因。
+	cfg, err := readConfigFile(getUserConfigPath())
 	if err != nil {
-		cfg, err = readConfigFile(getUserConfigPath())
+		cfg, err = readConfigFile(getSystemConfigPath())
 		if err != nil {
 			cfg = defaultConfig()
 		}
+	}
+	if cfg.WebPort < 0 || cfg.WebPort > 65535 {
+		cfg.WebPort = 0
 	}
 	return cfg
 }
@@ -1043,13 +1204,10 @@ func saveSystemConfig(cfg Config) error {
 	return saveJSON(getSystemConfigPath(), cfg, 0644)
 }
 
+// loadSystemConfig 服务循环读取配置。复用 loadConfig 保证服务与 GUI 看到同一份数据；
+// 系统级服务（root）会 fallback 到 /etc/npc/npc_gui.json。
 func loadSystemConfig() Config {
-	cfg, err := readConfigFile(getSystemConfigPath())
-	if err != nil {
-		logs.Warn("读取系统配置失败: %v", err)
-		return defaultConfig()
-	}
-	return cfg
+	return loadConfig()
 }
 
 func defaultConfig() Config {
@@ -1063,6 +1221,11 @@ func saveJSON(path string, cfg Config, mode os.FileMode) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %w", err)
+	}
+	// 首次运行时 ~/.config/npc（或 ~/Library/Application Support/npc）并不存在，
+	// 旧实现直接 WriteFile 会报 no such file，导致「保存配置」按钮必然失败。
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("创建配置目录 %s 失败: %w", filepath.Dir(path), err)
 	}
 	if err := os.WriteFile(path, data, mode); err != nil {
 		return fmt.Errorf("写入 %s 失败: %w", path, err)

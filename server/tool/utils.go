@@ -171,20 +171,38 @@ func TestServerPort(p int, m string, u *file.User, c *file.Client) bool {
 }
 
 // GenerateServerPort assigns a port automatically when the form leaves it
-// blank. Shared pool first (random, auto-recycled); if exhausted, fall back to
-// the user's exclusive block. The bool result says whether PortPool must be
-// set to PortFromShared on the tunnel.
+// blank. A normal user with their own exclusive block fills it first: the
+// default is the smallest free port inside that block, and only when the block
+// is full do we spill into the shared pool. Super admins and block-less users
+// keep the legacy behaviour (shared pool first, then any allowed port). The
+// bool result says whether PortPool must be set to PortFromShared on the
+// tunnel.
 func GenerateServerPort(m string, u *file.User, c *file.Client, taskId int) (int, bool) {
 	pool := file.GetPortPool()
 	userId := 0
 	if u != nil {
 		userId = u.Id
 	}
+
+	// A normal user who owns an exclusive block should consume it before any
+	// shared port: the default port becomes the smallest free one in their
+	// range, which is exactly what the UI pre-fills and what the operator
+	// expects ("use my own ports first").
+	hasBlock := u != nil && !u.IsSuperAdmin() && strings.TrimSpace(u.AllowPorts) != ""
+	if hasBlock {
+		if allowed, restricted := AllowedPorts(u, c); restricted && len(allowed) > 0 {
+			if p, ok := pool.PickSmallestFromAllowed(allowed, m); ok {
+				return p, false
+			}
+			logs.Warn("[portpool] exclusive block full, falling back to shared pool")
+		}
+	}
+
 	if pool.Enabled() {
 		if p, err := pool.AllocateShared(m, taskId, userId); err == nil {
 			return p, true
 		}
-		logs.Warn("[portpool] shared range unavailable, falling back to exclusive block")
+		logs.Warn("[portpool] shared range unavailable")
 	}
 
 	allowed, restricted := AllowedPorts(u, c)

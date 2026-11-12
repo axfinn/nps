@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"fmt"
+	"strings"
 
 	"ehang.io/nps/lib/file"
 	"ehang.io/nps/server"
@@ -97,6 +98,22 @@ func (s *IndexController) Add() {
 	if s.Ctx.Request.Method == "GET" {
 		s.Data["type"] = s.getEscapeString("type")
 		s.Data["client_id"] = s.getEscapeString("client_id")
+		// Show the operator their own exclusive port range on the new-tunnel
+		// page, and pre-fill the port field with the smallest free port inside
+		// it so the default is obvious. Super admins and block-less users get
+		// no range hint (they fall back to the shared pool).
+		if u := s.CurrentUser(); u != nil && !u.IsSuperAdmin() && strings.TrimSpace(u.AllowPorts) != "" {
+			s.Data["allow_ports"] = u.AllowPorts
+			mode := s.getEscapeString("type")
+			if mode == "" {
+				mode = "tcp"
+			}
+			if allowed, restricted := tool.AllowedPorts(u, nil); restricted && len(allowed) > 0 {
+				if p, ok := file.GetPortPool().PickSmallestFromAllowed(allowed, mode); ok {
+					s.Data["suggest_port"] = p
+				}
+			}
+		}
 		s.SetInfo("add tunnel")
 		s.display()
 	} else {

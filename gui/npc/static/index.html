@@ -55,6 +55,47 @@
 <body>
     <div class="container">
         <div class="card">
+            <div class="card-title">本地管理面板</div>
+            <div class="status-row">
+                <div class="status-item">
+                    <div class="status-label">当前访问地址</div>
+                    <div id="webUrl" class="status-value">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">状态栏常驻</div>
+                    <div id="trayStatus" class="status-value not_installed">-</div>
+                </div>
+            </div>
+
+            <div id="portFallbackAlert" class="alert alert-warning" style="display:none">
+                ⚠ 首选端口 <b id="preferredPort">-</b> 已被占用，本次已自动改用随机端口
+                <b id="actualPort">-</b>。状态栏图标显示的就是新端口，点击即可打开面板。
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>面板端口（默认 9666，填 0 恢复默认）</label>
+                    <input type="number" id="webPort" min="0" max="65535" placeholder="9666"
+                           oninput="this.dataset.dirty='1'">
+                </div>
+                <div class="form-group">
+                    <label>&nbsp;</label>
+                    <div class="service-btns">
+                        <button class="btn btn-sm btn-primary" onclick="window.saveWebPort()">保存端口</button>
+                        <button class="btn btn-sm btn-secondary" onclick="window.copyWebUrl()">复制地址</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alert alert-info" style="font-size:12px; margin-bottom:0">
+                端口被占用时会自动随机分配一个可用端口；实际端口写入
+                <code id="portFilePath">-</code>，开机时通过系统通知 + 状态栏图标提醒，
+                状态栏点击即可打开。修改端口需重启 NPC 生效，也可用
+                <code>-port 12345</code> 启动参数立即覆盖。
+            </div>
+        </div>
+
+        <div class="card">
             <div class="header">
                 <h1>NPC 内网穿透客户端</h1>
                 <span class="version">v<span id="version">-</span></span>
@@ -137,8 +178,11 @@
         <div class="card">
             <div class="card-title">系统服务管理</div>
             <div class="alert alert-info">
-                <strong>说明：</strong>安装为系统服务后，NPC 将在系统启动时自动运行。<br>
-                安装服务后需要重启系统才能生效，或者先使用"启动连接"手动连接。
+                <strong>说明：</strong>安装后会在<strong>登录系统时自动启动</strong>：隧道自动连接、
+                本地管理面板就绪，并在<strong>状态栏常驻显示端口</strong>（macOS 菜单栏 / Windows 托盘），
+                点击图标即可打开面板；开机时还会收到一次端口提醒。<br>
+                默认安装为当前用户的登录自启项，<strong>不需要管理员密码</strong>；
+                安装后下次登录生效，当前窗口仍可继续手动使用。
             </div>
             <div class="service-btns">
                 <button class="btn btn-sm btn-primary" onclick="svcInstall()">安装服务</button>
@@ -160,7 +204,8 @@
                 conn_type: document.querySelector('input[name="connType"]:checked').value,
                 tls_enable: document.getElementById('tlsEnable').checked,
                 proxy_url: document.getElementById('proxyUrl').value.trim(),
-                disconnect_timeout: parseInt(document.getElementById('disconnectTimeout').value) || 60
+                disconnect_timeout: parseInt(document.getElementById('disconnectTimeout').value) || 60,
+                web_port: parseInt(document.getElementById('webPort').value, 10) || 0
             };
         }
 
@@ -174,6 +219,59 @@
             document.getElementById('tlsEnable').checked = cfg.tls_enable || false;
             document.getElementById('proxyUrl').value = cfg.proxy_url || '';
             document.getElementById('disconnectTimeout').value = cfg.disconnect_timeout || 60;
+        }
+
+        function updatePanelInfo(data) {
+            const url = data.web_url || '';
+            document.getElementById('webUrl').textContent = url || '-';
+
+            const trayEl = document.getElementById('trayStatus');
+            trayEl.textContent = data.tray_running ? '已常驻' : '不可用';
+            trayEl.className = 'status-value ' + (data.tray_running ? 'running' : 'not_installed');
+
+            const fb = document.getElementById('portFallbackAlert');
+            fb.style.display = data.port_fallback ? 'block' : 'none';
+            if (data.port_fallback) {
+                document.getElementById('preferredPort').textContent = data.preferred_port;
+                document.getElementById('actualPort').textContent = data.web_port;
+            }
+            document.getElementById('portFilePath').textContent = data.port_file || '-';
+
+            const portInput = document.getElementById('webPort');
+            if (document.activeElement !== portInput && portInput.dataset.dirty !== '1') {
+                portInput.value = (data.config && data.config.web_port > 0) ? data.config.web_port : 9666;
+            }
+        }
+
+        async function saveWebPort() {
+            const v = parseInt(document.getElementById('webPort').value, 10);
+            if (isNaN(v) || v < 0 || v > 65535) {
+                alert('端口需为 0-65535（0 表示恢复默认 9666）');
+                return;
+            }
+            try {
+                const res = await fetch('/api/port', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({web_port: v})
+                });
+                if (!res.ok) { alert('保存失败: ' + await res.text()); return; }
+                alert(v === 0 ? '已恢复默认端口 9666，重启 NPC 后生效'
+                             : ('端口已设为 ' + v + '，重启 NPC 后生效'));
+                document.getElementById('webPort').dataset.dirty = '';
+                fetchStatus();
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        async function copyWebUrl() {
+            const url = document.getElementById('webUrl').textContent;
+            if (!url || url === '-') { alert('地址尚未就绪'); return; }
+            try {
+                await navigator.clipboard.writeText(url);
+                alert('已复制: ' + url);
+            } catch (e) {
+                window.prompt('复制下面的地址:', url);
+            }
         }
 
         async function fetchStatus() {
@@ -220,6 +318,7 @@
                 }
 
                 if (data.config) setFormData(data.config);
+                updatePanelInfo(data);
 
                 const logsEl = document.getElementById('logs');
                 logsEl.scrollTop = logsEl.scrollHeight;

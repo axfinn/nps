@@ -61,9 +61,15 @@
                     <div class="form-group" id="port">
                         <label class="control-label font-bold" langtag="word-serverport"></label>
                         <div class="col-sm-10">
-                            <input class="form-control" type="text" name="port" placeholder=""
+                            {{if .allow_ports}}
+                            <input class="form-control" type="text" name="port" id="portInput"
+                                   placeholder="留空自动分配你专属端口段内最小的空闲端口" {{if .suggest_port}}value="{{.suggest_port}}"{{end}}>
+                            <span class="help-block m-b-none">你的专属端口范围：<b>{{.allow_ports}}</b>。留空或保持默认，将自动分配其中 <b>最小的空闲端口</b>；你也可以填写该范围内的任意空闲端口（只能使用分配给你的这一段，超出范围会被拒绝）。当该段端口用尽时，才会从共享池补充。</span>
+                            {{else}}
+                            <input class="form-control" type="text" name="port" id="portInput" placeholder=""
                                    langtag="info-suchasport">
                             <span class="help-block m-b-none">留空自动从共享池 50000-60000 随机分配端口；也可填写自己专属端口段内的固定端口（共享池端口不能手工指定）。勾选下方选项可把随机端口直接固定下来。</span>
+                            {{end}}
                             <label class="checkbox-inline" style="margin-top:8px;">
                                 <input type="checkbox" name="pin_port" value="1"> 创建后即固定为永久端口（不自动归还、停用与重启都不换号、不过期）
                             </label>
@@ -133,7 +139,7 @@
                     <div class="form-group">
                         <div class="col-sm-4 col-sm-offset-2">
                             <button class="btn btn-success" type="button"
-                                    onclick="submitform('add', '{{.web_base_url}}/index/add', $('form').serializeArray())">
+                                    onclick="if(validatePortRange()) submitform('add', '{{.web_base_url}}/index/add', $('form').serializeArray())">
                                 <i class="fa fa-fw fa-lg fa-check-circle"></i> <span langtag="word-add"></span>
                             </button>
                         </div>
@@ -146,6 +152,9 @@
 </div>
 <script>
     var arr = []
+    // Exclusive port range assigned to the current operator (empty for super
+    // admins / block-less users). Used to validate manual port input.
+    var allowPortsRange = {{if .allow_ports}}"{{.allow_ports}}"{{else}}""{{end}};
     arr["all"] = ["port", "target", "password", "local_path", "strip_pre", "local_proxy", "client_id", "server_ip"]
     arr["tcp"] = ["port", "target", "local_proxy", "client_id", "server_ip", "proto_version"]
     arr["udp"] = ["port", "target", "local_proxy", "client_id", "server_ip"]
@@ -196,5 +205,38 @@
                 }
             }
         });
+    }
+
+    // Parse "40000-40099" or comma/space separated ranges and tell whether a
+    // port falls inside the current operator's exclusive range.
+    function inAllowPorts(port) {
+        if (!allowPortsRange) return true; // no restriction for this user
+        var parts = allowPortsRange.split(/[,\s]+/);
+        for (var i = 0; i < parts.length; i++) {
+            var seg = parts[i].split("-");
+            var lo = parseInt(seg[0], 10);
+            var hi = seg.length > 1 ? parseInt(seg[1], 10) : lo;
+            if (!isNaN(lo) && !isNaN(hi) && port >= lo && port <= hi) return true;
+        }
+        return false;
+    }
+
+    // Front-end guard for the new-tunnel form: a normal user may only type a
+    // port inside their assigned range. Blank means "auto pick the smallest
+    // free port in my block", which is always allowed.
+    function validatePortRange() {
+        if (!allowPortsRange) return true;
+        var raw = $.trim($("input[name='port']").val());
+        if (raw === "") return true;
+        var port = parseInt(raw, 10);
+        if (isNaN(port)) {
+            alert("端口必须是一个数字");
+            return false;
+        }
+        if (!inAllowPorts(port)) {
+            alert("你只能使用分配给你的专属端口范围：" + allowPortsRange);
+            return false;
+        }
+        return true;
     }
 </script>

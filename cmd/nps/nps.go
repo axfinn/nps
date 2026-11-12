@@ -85,7 +85,7 @@ func main() {
 	logs.SetLogFuncCallDepth(3)
 
 	if logPath == "" {
-		logPath := beego.AppConfig.String("log_path")
+		logPath = beego.AppConfig.String("log_path")
 		if logPath == "" {
 			logPath = common.GetLogPath()
 		}

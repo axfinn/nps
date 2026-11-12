@@ -71,5 +71,12 @@ jobs:
             windows_amd64_client.tar.gz
             windows_amd64_server.tar.gz
             npc_sdk.tar.gz
+            npc_gui_windows_amd64.tar.gz
+            npc_gui_windows_386.tar.gz
+            npc_gui_linux_amd64.tar.gz
+            npc_gui_linux_386.tar.gz
+            npc_gui_linux_arm64.tar.gz
+            npc_gui_darwin_amd64.tar.gz
+            npc_gui_darwin_arm64.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

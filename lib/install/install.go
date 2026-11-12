@@ -286,7 +286,7 @@ func copyStaticFileReplaceNps(srcPath, descPath string) string {
 	return binPath
 }
 
-func InstallNpc() {
+func InstallNpc() string {
 	path := common.GetInstallPath()
 	if !common.FileExists(path) {
 		err := os.Mkdir(path, 0755)
@@ -294,7 +294,7 @@ func InstallNpc() {
 			log.Fatal(err)
 		}
 	}
-	copyStaticFile(common.GetAppPath(), "npc")
+	return copyStaticFile(common.GetAppPath(), "npc")
 }
 
 func InstallNps() string {
