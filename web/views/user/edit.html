@@ -18,6 +18,13 @@
                         </div>
                     </div>
                     <div class="form-group">
+                        <label class="col-sm-2 control-label font-bold">绑定邮箱</label>
+                        <div class="col-sm-10">
+                            <input class="form-control" type="email" name="email" value="{{.u.Email}}" placeholder="留空表示解绑；全局唯一">
+                            <span class="help-block m-b-none">直接修改不经过邮箱验证，仅建议超级管理员在替用户初始化或修改时使用。</span>
+                        </div>
+                    </div>
+                    <div class="form-group">
                         <label class="col-sm-2 control-label font-bold">角色</label>
                         <div class="col-sm-10">
                             <select class="form-control" name="role">

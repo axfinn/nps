@@ -1,3 +1,17 @@
 .idea
 nps
 npc
+
+# 运行时数据与含密钥的本地配置，禁止入库
+# 真实 SMTP 凭据只写在部署机（如 h6:/root/docker/nps/conf/nps.conf），
+# 仓库 conf/nps.conf 永远只保留空占位。
+conf/users.json
+conf/global.json
+conf/*.bak.*
+conf/*.local
+conf/nps.local.conf
+*.env
+.env
+
+# 本地 agent 工作记忆，仅保留在本机，不进版本库
+.workbuddy/

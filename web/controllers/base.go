@@ -59,6 +59,7 @@ func (s *BaseController) Prepare() {
 		s.CheckUserAuth()
 	}
 	s.Data["role"] = s.GetSession("role")
+	s.Data["email_login_enable"] = emailLoginEnabled()
 	s.Data["user_auth_enable"] = beego.AppConfig.DefaultBool("user_auth_enable", true)
 	s.Data["https_just_proxy"], _ = beego.AppConfig.Bool("https_just_proxy")
 	s.Data["allow_user_login"], _ = beego.AppConfig.Bool("allow_user_login")
@@ -94,9 +95,52 @@ func toIntSlice(v interface{}) []int {
 }
 
 // VisibleClientIds returns the client scope of the current session. An empty
-// slice means the whole server (super admin).
+// slice means the whole server (super admin). A normal user must never get an
+// empty scope: the list helpers interpret that as "all clients", so a user
+// with no clients receives the -1 sentinel instead.
 func (s *BaseController) VisibleClientIds() []int {
-	return toIntSlice(s.GetSession("clientIds"))
+	ids := toIntSlice(s.GetSession("clientIds"))
+	if !s.IsSuperAdmin() && len(ids) == 0 {
+		return []int{-1}
+	}
+	return ids
+}
+
+// SessionUser resolves the real user record for the current session. Unlike
+// CurrentUser it does not return a synthetic super-admin sentinel, which is
+// what self-service pages (email binding) need.
+func (s *BaseController) SessionUser() *file.User {
+	v := s.GetSession("userId")
+	if v == nil {
+		return nil
+	}
+	var id int
+	switch x := v.(type) {
+	case int:
+		id = x
+	case int64:
+		id = int(x)
+	case float64:
+		id = int(x)
+	default:
+		return nil
+	}
+	if u, err := file.GetDb().GetUser(id); err == nil {
+		return u
+	}
+	return nil
+}
+
+// CanManageClient is the server-side ownership check. Super admins manage
+// everything; normal users only manage ids in their own session scope.
+func (s *BaseController) CanManageClient(id int) bool {
+	if id <= 0 {
+		return false
+	}
+	if s.IsSuperAdmin() {
+		return true
+	}
+	return file.MatchClientId(id, s.VisibleClientIds())
 }
 
 func (s *BaseController) IsSuperAdmin() bool {
@@ -160,12 +204,17 @@ func (s *BaseController) CheckUserAuth() {
 		s.StopRun()
 		return
 	}
-	// Creating / deleting / disabling clients is super-admin only.
-	if s.controllerName == "client" {
+	// A normal user may create their own client (ownership is assigned in
+	// ClientController.Add), but every other client action must target an id
+	// that belongs to them. Legacy sessions without a scope see nothing.
+	if s.controllerName == "client" && !s.IsSuperAdmin() {
 		switch s.actionName {
-		case "add", "del", "changestatus":
-			s.StopRun()
-			return
+		case "add", "list": // list rows are narrowed by RequestClientIds
+		default:
+			if !s.CanManageClient(s.GetIntNoErr("id")) {
+				s.StopRun()
+				return
+			}
 		}
 		if id := s.GetIntNoErr("id"); id != 0 && !allowed(id) {
 			s.StopRun()

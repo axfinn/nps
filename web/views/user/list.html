@@ -51,6 +51,8 @@
         columns: [
             {field: 'Id', title: 'ID', halign: 'center'},
             {field: 'Username', title: '用户名', halign: 'center'},
+            {field: 'Email', title: '绑定邮箱', halign: 'center',
+                formatter: function (v) { return v ? v : '—'; }},
             {
                 field: 'Role', title: '角色', halign: 'center',
                 formatter: function (v) {

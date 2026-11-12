@@ -10,6 +10,7 @@
                             <input class="form-control" type="text" name="remark" placeholder="" langtag="word-remark">
                         </div>
                     </div>
+                {{if eq true .isAdmin}}
                 {{if eq true .allow_flow_limit}}
                     <div class="form-group" id="flow_limit">
                         <label class="control-label font-bold" langtag="word-flowlimit"></label>
@@ -43,6 +44,10 @@
                             <input class="form-control" type="text" name="max_tunnel" placeholder="" langtag="info-unrestricted">
                         </div>
                     </div>
+                {{end}}
+                {{end}}
+                {{if eq false .isAdmin}}
+                    <div class="alert alert-info">新建的客户端会自动归属到你的账号。流量、速率、连接数与隧道数上限由超级管理员统一设置。</div>
                 {{end}}
                     <div class="form-group" id="u">
                         <label class="control-label font-bold" langtag="word-basicusername"></label>

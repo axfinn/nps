@@ -113,6 +113,11 @@
                 </li>
                 {{end}}
 
+                <li class="{{if eq "account" .menu}}active{{end}}">
+                    <a href="{{.web_base_url}}/account/profile"><i class="fa fa-user-shield fa-lg"></i>
+                    <span class="nav-label">账号与安全</span></a>
+                </li>
+
                 <li class="{{if eq "download" .menu}}active{{end}}">
                     <a href="{{.web_base_url}}/index/download"><i class="fa fa-download fa-lg"></i>
                     <span class="nav-label">客户端下载</span></a>

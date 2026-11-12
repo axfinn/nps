@@ -1,13 +1,18 @@
 package controllers
 
 import (
+	"errors"
+	"fmt"
+	"log"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
 	"ehang.io/nps/lib/common"
 	"ehang.io/nps/lib/file"
+	"ehang.io/nps/lib/mail"
 	"ehang.io/nps/server"
 	"github.com/astaxie/beego"
 	"github.com/astaxie/beego/cache"
@@ -41,6 +46,8 @@ func (self *LoginController) Index() {
 	self.Data["web_base_url"] = webBaseUrl
 	self.Data["register_allow"], _ = beego.AppConfig.Bool("allow_user_register")
 	self.Data["captcha_open"], _ = beego.AppConfig.Bool("open_captcha")
+	self.Data["email_login_enable"] = emailLoginEnabled()
+	self.Data["email_code_resend_seconds"] = beego.AppConfig.DefaultInt("email_code_resend_seconds", 60)
 	self.TplName = "login/index.html"
 }
 
@@ -52,6 +59,7 @@ func (self *LoginController) Verify() {
 		if !cpt.VerifyReq(self.Ctx.Request) {
 			self.Data["json"] = map[string]interface{}{"status": 0, "msg": "the verification code is wrong, please get it again and try again"}
 			self.ServeJSON()
+			return
 		}
 	}
 	if self.doLogin(username, password, true) {
@@ -72,6 +80,138 @@ func (self *LoginController) setSuperAdminSession() {
 	server.Bridge.Register.Store(common.GetIpByAddr(self.Ctx.Input.IP()), time.Now().Add(time.Hour*2))
 }
 
+// applyUserSession is the single place where a user-table login writes its
+// session. Both password and email-code login go through it, so permissions
+// can never drift between the two paths.
+func (self *LoginController) applyUserSession(u *file.User) {
+	self.SetSession("isAdmin", u.IsSuperAdmin())
+	self.SetSession("role", u.Role)
+	self.SetSession("userId", u.Id)
+	self.SetSession("username", u.Username)
+	ids := append([]int(nil), u.ClientIds...)
+	// An empty scope means "all clients" in the list helpers. A normal user
+	// with no clients must therefore carry an impossible id as a sentinel,
+	// otherwise it would be treated as an unrestricted viewer.
+	if !u.IsSuperAdmin() && len(ids) == 0 {
+		ids = []int{-1}
+	}
+	self.SetSession("clientIds", ids)
+	if u.IsSuperAdmin() {
+		self.DelSession("clientId")
+		server.Bridge.Register.Store(common.GetIpByAddr(self.Ctx.Input.IP()), time.Now().Add(time.Hour*2))
+	} else if len(u.ClientIds) > 0 {
+		self.SetSession("clientId", u.ClientIds[0])
+	} else {
+		self.SetSession("clientId", 0)
+	}
+	self.SetSession("auth", true)
+}
+
+func (self *LoginController) clientIP() string {
+	if ip, _, err := net.SplitHostPort(self.Ctx.Request.RemoteAddr); err == nil {
+		return ip
+	}
+	return self.Ctx.Input.IP()
+}
+
+func (self *LoginController) ajaxStatus(status int, msg string) {
+	self.Data["json"] = map[string]interface{}{"status": status, "msg": msg}
+	self.ServeJSON()
+}
+
+// SendCode issues a login code (unauthenticated, only for bound addresses) or
+// a bind-email code (requires a logged-in session).
+func (self *LoginController) SendCode() {
+	if !emailLoginEnabled() {
+		self.ajaxStatus(0, "邮箱验证码登录未启用，请先在 nps.conf 中配置 SMTP")
+		return
+	}
+	purpose := mail.Purpose(strings.TrimSpace(self.GetString("purpose")))
+	if !mail.ValidPurpose(purpose) {
+		self.ajaxStatus(0, "验证码用途无效")
+		return
+	}
+	email := mail.NormalizeEmail(self.GetString("email"))
+	if !mail.ValidEmail(email) {
+		self.ajaxStatus(0, "邮箱格式不正确")
+		return
+	}
+	if purpose == mail.PurposeLogin {
+		u := file.GetDb().GetUserByEmail(email)
+		if u == nil || !u.Status {
+			self.ajaxStatus(0, "该邮箱未绑定任何启用中的账号")
+			return
+		}
+	} else {
+		if self.GetSession("auth") != true {
+			self.ajaxStatus(0, "请先登录后再绑定邮箱")
+			return
+		}
+		if bound := file.GetDb().GetUserByEmail(email); bound != nil {
+			if id, ok := self.GetSession("userId").(int); ok && id == bound.Id {
+				self.ajaxStatus(0, "该邮箱已是当前账号的绑定邮箱")
+			} else {
+				self.ajaxStatus(0, "该邮箱已被其他账号绑定")
+			}
+			return
+		}
+	}
+
+	code, err := emailCodeStore().Issue(email, purpose, self.clientIP())
+	if err != nil {
+		switch {
+		case errors.Is(err, mail.ErrTooFrequent):
+			self.ajaxStatus(0, "发送过于频繁，请稍后再试")
+		case errors.Is(err, mail.ErrIPRateLimit):
+			self.ajaxStatus(0, "请求次数过多，请一小时后再试")
+		default:
+			self.ajaxStatus(0, err.Error())
+		}
+		return
+	}
+
+	subject, action := "登录验证码", "登录"
+	if purpose == mail.PurposeBind {
+		subject, action = "邮箱绑定验证码", "绑定邮箱"
+	}
+	minutes := beego.AppConfig.DefaultInt("email_code_ttl_minutes", 10)
+	body := fmt.Sprintf("你正在%s，验证码是 %s，%d 分钟内有效。\r\n若非本人操作请忽略此邮件，切勿把验证码告诉他人。", action, code, minutes)
+	if err := mail.Send(smtpConfig(), email, subject, body); err != nil {
+		emailCodeStore().Revoke(email, purpose)
+		log.Printf("nps: send email code to %s failed: %v", email, err)
+		self.ajaxStatus(0, "验证码邮件发送失败，请检查 SMTP 配置或稍后重试")
+		return
+	}
+	self.ajaxStatus(1, "验证码已发送，请查收邮件")
+}
+
+// EmailLogin redeems a login code and opens the same session as a password
+// login. Codes are single use and bound to the address they were issued for.
+func (self *LoginController) EmailLogin() {
+	if !emailLoginEnabled() {
+		self.ajaxStatus(0, "邮箱验证码登录未启用")
+		return
+	}
+	email := mail.NormalizeEmail(self.GetString("email"))
+	code := strings.TrimSpace(self.GetString("code"))
+	if !mail.ValidEmail(email) || code == "" {
+		self.ajaxStatus(0, "请输入邮箱和验证码")
+		return
+	}
+	u := file.GetDb().GetUserByEmail(email)
+	if u == nil || !u.Status {
+		self.ajaxStatus(0, "该邮箱未绑定任何启用中的账号")
+		return
+	}
+	if !emailCodeStore().Consume(email, mail.PurposeLogin, code) {
+		self.ajaxStatus(0, "验证码错误或已过期，请重新获取")
+		return
+	}
+	self.applyUserSession(u)
+	ipRecord.Delete(self.clientIP())
+	self.ajaxStatus(1, "login success")
+}
+
 func (self *LoginController) doLogin(username, password string, explicit bool) bool {
 	clearIprecord()
 	ip, _, _ := net.SplitHostPort(self.Ctx.Request.RemoteAddr)
@@ -90,19 +230,7 @@ func (self *LoginController) doLogin(username, password string, explicit bool) b
 	if beego.AppConfig.DefaultBool("user_auth_enable", true) {
 		if u := file.GetDb().GetUserByName(username); u != nil && u.CheckPassword(password) {
 			auth = true
-			self.SetSession("isAdmin", u.IsSuperAdmin())
-			self.SetSession("role", u.Role)
-			self.SetSession("userId", u.Id)
-			self.SetSession("username", u.Username)
-			self.SetSession("clientIds", u.ClientIds)
-			if u.IsSuperAdmin() {
-				self.DelSession("clientId")
-				server.Bridge.Register.Store(common.GetIpByAddr(self.Ctx.Input.IP()), time.Now().Add(time.Hour*2))
-			} else if len(u.ClientIds) > 0 {
-				self.SetSession("clientId", u.ClientIds[0])
-			} else {
-				self.SetSession("clientId", 0)
-			}
+			self.applyUserSession(u)
 		}
 	}
 

@@ -25,6 +25,7 @@ const (
 type User struct {
 	Id           int
 	Username     string
+	Email        string
 	PasswordHash string
 	Salt         string
 	Role         string
@@ -33,6 +34,19 @@ type User struct {
 	AllowPorts   string
 	Remark       string
 	CreateTime   string
+}
+
+// NormalizeUserEmail gives every caller the same canonical email form. Strict
+// format validation happens at the web layer (mail.ValidEmail); here we only
+// reject values that cannot possibly be an address.
+func NormalizeUserEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func basicEmailValid(email string) bool {
+	at := strings.IndexByte(email, '@')
+	return at > 0 && at < len(email)-1 && !strings.ContainsAny(email, " \t\r\n") &&
+		strings.Contains(email[at+1:], ".")
 }
 
 // HashUserPassword derives a password digest. Iterated SHA-256 with a random
@@ -84,6 +98,7 @@ func (u *User) Public() *User {
 	return &User{
 		Id:         u.Id,
 		Username:   u.Username,
+		Email:      u.Email,
 		Role:       u.Role,
 		Status:     u.Status,
 		ClientIds:  ids,
@@ -120,6 +135,128 @@ func (s *DbUtils) GetUserByName(username string) *User {
 		return true
 	})
 	return found
+}
+
+// GetUserByEmail resolves the account an email address is bound to.
+// Email binding is unique across all users, case-insensitively.
+func (s *DbUtils) GetUserByEmail(email string) *User {
+	email = NormalizeUserEmail(email)
+	if email == "" {
+		return nil
+	}
+	var found *User
+	s.JsonDb.Users.Range(func(key, value interface{}) bool {
+		v := value.(*User)
+		if NormalizeUserEmail(v.Email) == email {
+			found = v
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// VerifyUserEmail reports whether the address is available for this user.
+func (s *DbUtils) VerifyUserEmail(email string, id int) bool {
+	email = NormalizeUserEmail(email)
+	if email == "" {
+		return true
+	}
+	ok := true
+	s.JsonDb.Users.Range(func(key, value interface{}) bool {
+		v := value.(*User)
+		if v.Id != id && NormalizeUserEmail(v.Email) == email {
+			ok = false
+			return false
+		}
+		return true
+	})
+	return ok
+}
+
+func (s *DbUtils) validateUserEmail(u *User) error {
+	orig := u.Email
+	u.Email = NormalizeUserEmail(orig)
+	if u.Email == "" {
+		return nil
+	}
+	// u is often a live pointer into the user map, so a rejected value must
+	// never be left behind in memory (it would create a phantom binding).
+	restore := func(err error) error {
+		u.Email = orig
+		return err
+	}
+	if !basicEmailValid(u.Email) {
+		return restore(errors.New("invalid email address"))
+	}
+	if !s.VerifyUserEmail(u.Email, u.Id) {
+		return restore(errors.New("email address is already bound to another user"))
+	}
+	return nil
+}
+
+// SetUserEmail binds (or, with an empty value, unbinds) the address of a user.
+// The web layer verifies a code before calling this for self-service binding.
+func (s *DbUtils) SetUserEmail(id int, email string) error {
+	u, err := s.GetUser(id)
+	if err != nil {
+		return err
+	}
+	orig := u.Email
+	u.Email = email
+	if err := s.validateUserEmail(u); err != nil {
+		u.Email = orig
+		return err
+	}
+	s.JsonDb.StoreUsersToJsonFile()
+	return nil
+}
+
+// AssignClientToUser gives a newly created client to its creator. Normal
+// users are only ever allowed to add clients for themselves.
+func (s *DbUtils) AssignClientToUser(userId, clientId int) error {
+	u, err := s.GetUser(userId)
+	if err != nil {
+		return err
+	}
+	if _, err := s.JsonDb.GetClient(clientId); err != nil {
+		return errors.New("client not found")
+	}
+	ids := make([]int, 0, len(u.ClientIds)+1)
+	for _, id := range u.ClientIds {
+		if id == clientId {
+			return nil
+		}
+		// -1 is a session-only "no clients" sentinel, never persist it.
+		if id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	u.ClientIds = append(ids, clientId)
+	s.JsonDb.StoreUsersToJsonFile()
+	return nil
+}
+
+// UnassignClient removes a deleted client from every user's ClientIds so no
+// stale ownership is left behind in users.json.
+func (s *DbUtils) UnassignClient(clientId int) {
+	changed := false
+	s.JsonDb.Users.Range(func(key, value interface{}) bool {
+		u := value.(*User)
+		kept := make([]int, 0, len(u.ClientIds))
+		for _, id := range u.ClientIds {
+			if id == clientId {
+				changed = true
+				continue
+			}
+			kept = append(kept, id)
+		}
+		u.ClientIds = kept
+		return true
+	})
+	if changed {
+		s.JsonDb.StoreUsersToJsonFile()
+	}
 }
 
 // GetUserByClientId resolves which normal user owns a client. A client that
@@ -208,6 +345,9 @@ func (s *DbUtils) NewUser(u *User) error {
 	if !s.VerifyUserUsername(u.Username, u.Id) {
 		return errors.New("username already exists")
 	}
+	if err := s.validateUserEmail(u); err != nil {
+		return err
+	}
 	if err := s.ValidateClientOwnership(u); err != nil {
 		return err
 	}
@@ -231,6 +371,9 @@ func (s *DbUtils) UpdateUser(u *User) error {
 	}
 	if !s.VerifyUserUsername(u.Username, u.Id) {
 		return errors.New("username already exists")
+	}
+	if err := s.validateUserEmail(u); err != nil {
+		return err
 	}
 	if err := s.ValidateClientOwnership(u); err != nil {
 		return err

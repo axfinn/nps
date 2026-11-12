@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ehang.io/nps/lib/file"
+	"ehang.io/nps/lib/mail"
 )
 
 type UserController struct {
@@ -67,12 +68,18 @@ func (s *UserController) Add() {
 	}
 	username := strings.TrimSpace(s.getEscapeString("username"))
 	password := s.getEscapeString("password")
+	email := mail.NormalizeEmail(s.getEscapeString("email"))
 	if username == "" || password == "" {
 		s.AjaxErr("username and password are required")
 		return
 	}
+	if email != "" && !mail.ValidEmail(email) {
+		s.AjaxErr("邮箱格式不正确")
+		return
+	}
 	u := &file.User{
 		Username:   username,
+		Email:      email,
 		Role:       s.getEscapeString("role"),
 		Status:     s.GetBoolNoErr("status", true),
 		ClientIds:  parseClientIds(s),
@@ -112,8 +119,13 @@ func (s *UserController) Edit() {
 		return
 	}
 	username := strings.TrimSpace(s.getEscapeString("username"))
+	email := mail.NormalizeEmail(s.getEscapeString("email"))
 	if username == "" {
 		s.AjaxErr("username is required")
+		return
+	}
+	if email != "" && !mail.ValidEmail(email) {
+		s.AjaxErr("邮箱格式不正确")
 		return
 	}
 	role := s.getEscapeString("role")
@@ -122,16 +134,21 @@ func (s *UserController) Edit() {
 		s.AjaxErr("cannot demote or disable the last super admin")
 		return
 	}
-	u.Username = username
-	u.Role = role
-	u.Status = status
-	u.ClientIds = parseClientIds(s)
-	u.AllowPorts = strings.TrimSpace(s.getEscapeString("allow_ports"))
-	u.Remark = s.getEscapeString("remark")
+	// Work on a copy: GetUser returns the live pointer in the user map, so a
+	// rejected update must not leave a half-edited user (or a phantom email
+	// binding) in memory.
+	updated := *u
+	updated.Username = username
+	updated.Email = email
+	updated.Role = role
+	updated.Status = status
+	updated.ClientIds = parseClientIds(s)
+	updated.AllowPorts = strings.TrimSpace(s.getEscapeString("allow_ports"))
+	updated.Remark = s.getEscapeString("remark")
 	if pwd := s.getEscapeString("password"); pwd != "" {
-		u.SetPassword(pwd)
+		updated.SetPassword(pwd)
 	}
-	if err := file.GetDb().UpdateUser(u); err != nil {
+	if err := file.GetDb().UpdateUser(&updated); err != nil {
 		s.AjaxErr(err.Error())
 		return
 	}

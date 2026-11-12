@@ -1,5 +1,5 @@
 #/bash/sh
-export VERSION=0.26.74
+export VERSION=0.26.75
 export GOPROXY=https://proxy.golang.org,https://goproxy.cn,direct
 
 sudo apt-get update
