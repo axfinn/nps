@@ -59,7 +59,7 @@
                 {{if eq true .email_login_enable}}
                 <ul class="nav nav-tabs" id="loginTabs">
                     <li class="active"><a href="#pwdLogin" data-toggle="tab">密码登录</a></li>
-                    <li><a href="#emailLogin" data-toggle="tab">邮箱验证码</a></li>
+                    <li><a href="#emailLoginPane" data-toggle="tab">邮箱验证码</a></li>
                 </ul>
                 {{end}}
                 <div class="tab-content" style="padding-top:18px;">
@@ -80,7 +80,7 @@
                                            langtag="word-captcha">
                                 </div>
                             {{end}}
-                            <button onclick="login()" class="btn btn-primary block full-width m-b"
+                            <button onclick="window.login()" class="btn btn-primary block full-width m-b"
                                     langtag="word-login"></button>
                             {{if eq true .register_allow}}
                                 <p class="text-muted text-center"><small langtag="info-noaccount"></small></p>
@@ -90,7 +90,7 @@
                         </form>
                     </div>
                     {{if eq true .email_login_enable}}
-                    <div class="tab-pane" id="emailLogin">
+                    <div class="tab-pane" id="emailLoginPane">
                         <form id="emailForm" class="m-t" onsubmit="return false">
                             <div class="form-group">
                                 <input id="login_email" name="email" type="email" class="form-control"
@@ -101,12 +101,12 @@
                                     <input id="login_code" name="code" class="form-control"
                                            placeholder="6 位验证码" required="">
                                     <span class="input-group-btn">
-                                        <button id="sendLoginCode" type="button" class="btn btn-default"
-                                                onclick="sendLoginCode()">获取验证码</button>
+                                        <button id="sendLoginCodeBtn" type="button" class="btn btn-default"
+                                                onclick="window.sendLoginCode()">获取验证码</button>
                                     </span>
                                 </div>
                             </div>
-                            <button onclick="emailLogin()" class="btn btn-primary block full-width m-b">登录</button>
+                            <button onclick="window.emailLogin()" class="btn btn-primary block full-width m-b">登录</button>
                             <p class="text-muted"><small>验证码仅发往已绑定的邮箱；未绑定请先使用密码登录后到「账号与安全」中绑定。</small></p>
                         </form>
                     </div>
@@ -125,8 +125,6 @@
 </div>
 
 <script type="text/javascript">
-    window.nps = {"web_base_url": {{.web_base_url}} }
-
     // Login Page Flipbox control
     function login() {
         $.ajax({
@@ -180,7 +178,7 @@
     function sendLoginCode() {
         var email = $.trim($('#login_email').val());
         if (!email) { alert('请输入邮箱'); return; }
-        var btn = document.getElementById('sendLoginCode');
+        var btn = document.getElementById('sendLoginCodeBtn');
         postForm('{{.web_base_url}}/login/sendcode',
             {email: email, purpose: 'login'},
             function (res) { alert(res.msg); countdown(btn, resendSeconds); });

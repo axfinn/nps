@@ -50,8 +50,8 @@
                                 <div class="input-group">
                                     <input id="bind_code" name="code" class="form-control" placeholder="6 位验证码" required="">
                                     <span class="input-group-btn">
-                                        <button id="sendBindCode" type="button" class="btn btn-default"
-                                                onclick="sendBindCode()">获取验证码</button>
+                                        <button id="sendBindCodeBtn" type="button" class="btn btn-default"
+                                                onclick="window.sendBindCode()">获取验证码</button>
                                     </span>
                                 </div>
                                 <span class="help-block m-b-none">验证码 {{.code_ttl_minutes}} 分钟内有效，{{.resend_seconds}} 秒内不可重复发送。</span>
@@ -59,11 +59,11 @@
                         </div>
                         <div class="form-group">
                             <div class="col-sm-9 col-sm-offset-3">
-                                <button type="button" class="btn btn-primary" onclick="bindEmail()">
+                                <button type="button" class="btn btn-primary" onclick="window.bindEmail()">
                                     <i class="fa fa-check-circle"></i> 确认绑定
                                 </button>
                                 {{if .email}}
-                                <button type="button" class="btn btn-danger m-l-sm" onclick="unbindEmail()">
+                                <button type="button" class="btn btn-danger m-l-sm" onclick="window.unbindEmail()">
                                     <i class="fa fa-unlink"></i> 解绑当前邮箱
                                 </button>
                                 {{end}}
@@ -125,7 +125,7 @@
     function sendBindCode() {
         var email = $.trim($('#bind_email').val());
         if (!email) { alert('请输入邮箱'); return; }
-        var btn = document.getElementById('sendBindCode');
+        var btn = document.getElementById('sendBindCodeBtn');
         postAccount('{{.web_base_url}}/login/sendcode',
             {email: email, purpose: 'bind'},
             function (res) { alert(res.msg); countdown(btn, resendSeconds); });
