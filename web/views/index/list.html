@@ -56,11 +56,10 @@
     name = '{{.name}}:'.replace(/\s*/g,"")
     $('#langtag').attr('langtag','page-list' + name.replace(/:.*/,"")).next().text(name.split(":")[1])
 
-    /*bootstrap table*/
-    $('#table').bootstrapTable({
-        toolbar: "#toolbar",
-        method: 'post', // 服务器数据的请求方式 get or post
-        url: "{{.web_base_url}}/index/gettunnel", // 服务器数据的加载地址
+    /*bootstrap table —— 复用 NPS.detailTable 公共配置*/
+    NPS.detailTable('#table', {
+        url: "{{.web_base_url}}/index/gettunnel",
+        pageList: [5, 10, 20, 50],//分页步进值
         queryParams: function (params) {
             return {
                 "offset": params.offset,
@@ -72,21 +71,7 @@
                 "order": params.order
             }
         },
-        search: true,
-        contentType: "application/x-www-form-urlencoded",
-        striped: true, // 设置为true会有隔行变色效果
-        showHeader: true,
-        showColumns: true,
-        showRefresh: true,
-        pagination: true,//分页
-        sidePagination: 'server',//服务器端分页
-        pageNumber: 1,
-        pageList: [5, 10, 20, 50],//分页步进值
-        detailView: true,
-        smartDisplay: true, // 智能显示 pagination 和 cardview 等
-        onExpandRow: function () {$('body').setLang ('.detail-view');},
         onLoadSuccess:function (data) {$('body').setLang ('.detail-view');},
-        onPostBody: function (data) { if ($(this)[0].locale != undefined ) $('body').setLang ('#table'); },
         detailFormatter: function (index, row, element) {
             tmp = '<b langtag="word-exportflow"></b>: ' + changeunit(row.Flow.ExportFlow) + '&emsp;'
                     + '<b langtag="word-inletflow"></b>: ' + changeunit(row.Flow.InletFlow) + '&emsp;'
@@ -201,13 +186,7 @@
                 align: 'center',
                 halign: 'center',
                 visible: true,//false表示不显示
-                formatter: function (value, row, index) {
-                    if (value) {
-                        return '<span class="badge badge-primary" langtag="word-open"></span>'
-                    } else {
-                        return '<span class="badge badge-badge" langtag="word-close"></span>'
-                    }
-                }
+                formatter: NPS.badgeOpenClose
             },
             {
                 field: 'RunStatus',//域值
@@ -215,13 +194,7 @@
                 align: 'center',
                 halign: 'center',
                 visible: true,//false表示不显示
-                formatter: function (value, row, index) {
-                    if (value) {
-                        return '<span class="badge badge-primary" langtag="word-open"></span>'
-                    } else {
-                        return '<span class="badge badge-badge" langtag="word-close"></span>'
-                    }
-                }
+                formatter: NPS.badgeOpenClose
             },
             {
                 field: '',//域值
@@ -230,11 +203,7 @@
                 halign: 'center',
                 visible: true,//false表示不显示
                 formatter: function (value, row, index) {
-                    if (row.Client.IsConnect) {
-                        return '<span class="badge badge-primary" langtag="word-online"></span>'
-                    } else {
-                        return '<span class="badge badge-badge" langtag="word-offline"></span>'
-                    }
+                    return NPS.badgeOnlineOffline(row.Client.IsConnect)
                 }
             },
             {

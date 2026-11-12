@@ -48,17 +48,8 @@
         });
     }
 
-    $('#table').bootstrapTable({
-        toolbar: '#toolbar',
-        method: 'post',
+    NPS.table('#table', {
         url: '{{.web_base_url}}/user/list',
-        contentType: 'application/x-www-form-urlencoded',
-        striped: true,
-        search: true,
-        showRefresh: true,
-        pagination: true,
-        sidePagination: 'server',
-        pageNumber: 1,
         pageList: [10, 20, 50],
         columns: [
             {field: 'Id', title: 'ID', halign: 'center'},
