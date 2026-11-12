@@ -60,7 +60,61 @@ nps.exe
 ./npc_gui                      # 默认监听 127.0.0.1:9666，自动打开浏览器
 ./npc_gui -port 12345          # 指定端口（立即生效）
 ./npc_gui -no-open -no-tray    # 无头/测试环境：不弹浏览器、不显示状态栏
+
+# 也支持像命令行客户端一样带参数运行（连接参数名与 npc 一致）
+./npc_gui -server=你的服务器:8024 -vkey=你的vkey
+./npc_gui -config=/path/to/npc.conf          # 复用命令行版 npc.conf 的 [common] 段
+./npc_gui -headless -server=你的服务器:8024 -vkey=你的vkey   # 完全无界面，只跑隧道
+./npc_gui -server=你的服务器:8024 -vkey=你的vkey -save        # 参数落盘，之后双击即用
+./npc_gui -version                          # 显示版本
+./npc_gui -print-config                     # 打印生效配置（vkey 打码）
 ```
+
+**连接参数**：`-server`、`-vkey`、`-type`（tcp|kcp）、`-tls_enable`、`-proxy`、
+`-disconnect_timeout`、`-config`。另外还支持环境变量 `NPC_SERVER_ADDR`、
+`NPC_SERVER_VKEY`（与命令行版 npc 同名）、`NPC_CONN_TYPE`、`NPC_TLS_ENABLE`、
+`NPC_PROXY_URL`、`NPC_DISCONNECT_TIMEOUT`。
+
+**运行模式**：`-headless`（无界面，等价于命令行客户端，支持逗号分隔多个 vkey 并发重连）、
+`-autostart`（面板照常启动但自动连接）、`-save`（把生效参数写入用户配置）、
+`-port` / `-no-open` / `-no-tray`；观测类 `-version`、`-print-config`、
+`-log`（store|stdout|file|both）、`-log_level`、`-log_path`、`-pprof`。
+完整列表见 `./npc_gui -h`。
+
+配置优先级（低 → 高，逐字段覆盖）：
+
+```
+编译期预置 (-ldflags -X) < 已保存的 GUI 配置 < -config 文件 < NPC_* 环境变量 < 命令行参数
+```
+
+- 显式传了 `-server` / `-vkey` / `-config` 时会自动连接，不必再进面板点「启动」；
+  仅靠编译期预置或已保存配置启动时仍保持手动启动，需要自动连请加 `-autostart`。
+- `-config` 既接受 `npc_gui.json` 格式，也接受命令行版 `npc.conf`；后者**只读取 `[common]` 段**
+  的连接参数，`[tcp]` / `[web]` / `[secret]` 等本地映射段不生效（隧道由服务端下发，不是客户端本地定义）。
+  面板模式只连接第一个 vkey，多 vkey 请用 `-headless`。
+- `-headless` 不启动 Web 面板、状态栏、浏览器，日志默认走 stdout；Ctrl+C 优雅退出。
+  服务模式（`-service-run`）优先于 `-headless`。
+- 开机自启项只写入 `-service-run`，**不会继承启动时的 `-server` 等参数**。想让服务使用固定连接参数，
+  先 `-save` 落盘（或在编译时预置）再安装服务。
+- `-print-config` 的 vkey 始终打码；`-save` 才会把 vkey 写入本机用户配置文件。
+
+**编译期预置连接参数（定制发行包）**：`build.assets.sh` 的 7 个 `npc_gui_*` 包可由环境变量注入默认值，
+用户拿到后打开面板就已填好服务器地址（也可直接 `-autostart` / `-headless` 运行）：
+
+```bash
+NPC_GUI_SERVER=你的服务器:8024 \
+NPC_GUI_VKEY=你的vkey \
+NPC_GUI_LABEL="某某专用" \
+./build.assets.sh
+```
+
+可注入项：`NPC_GUI_SERVER`、`NPC_GUI_VKEY`、`NPC_GUI_TYPE`、`NPC_GUI_TLS`、
+`NPC_GUI_PROXY`、`NPC_GUI_DISCONNECT_TIMEOUT`、`NPC_GUI_LABEL`。
+不设置时 7 个包仍是「自己填配置」的通用客户端，行为与之前完全一致；
+真实地址/密钥不要写进仓库，本地用环境变量、CI 里用 Secret 传入，
+构建后用 `./npc_gui -version` / `-print-config` 核对。
+Release workflow（`pkg.yml`）的 Build 步骤已接好同名变量：密钥读仓库 Secrets
+（`NPC_GUI_VKEY`），其余读仓库 Variables，都留空即构建通用包。
 
 - **端口策略**：默认 `9666`，可在面板「本地管理面板 → 面板端口」里修改（重启后生效）。
   若首选端口被占用，会自动改用随机可用端口；本次实际地址写入
@@ -145,6 +199,20 @@ docker run -d --name npc \
 | vkey | 认证密钥 |
 
 # 更新日志
+
+- 2026-11-12 v0.26.81
+  新增：
+  - **npc_gui 支持命令行参数运行**：与命令行版 `npc` 同名的 `-server/-vkey/-type/-tls_enable/-proxy/-disconnect_timeout/-config`，
+    外加 `-headless`（完全无界面跑隧道、支持逗号分隔多 vkey）、`-autostart`、`-save`、`-version`、`-print-config`、`-log*`；
+    支持 `NPC_*` 环境变量与四级配置优先级，显式传连接参数时自动连接，纯 GUI 启动行为不变。
+  - **编译期预置连接参数**：`build.assets.sh` 的 7 个 `npc_gui_*` 包可用 `NPC_GUI_*` 环境变量经 `-ldflags -X` 注入默认值，
+    不注入时行为不变；真实地址/密钥不写进仓库。脚本补上 `#!/usr/bin/env bash`（用到 bash 专有语法）。
+  修复：
+  - npc_gui 服务模式判定不再依赖 `!service.Interactive()` 猜测，避免无 tty / systemd 环境下把 `-headless` 误判成服务模式。
+  注意：
+  - 本次改动集中在 Web GUI 客户端，服务端逻辑未变；`docker.yml` 仍按惯例产出 `axiu/nps:v0.26.81` 镜像。
+  - 7 个 `npc_gui_*` 发行包由 Release workflow（`pkg.yml`）产出，推 tag 不会触发它；
+    需在 GitHub 上以 `v0.26.81` 创建 Release，或手动运行该 workflow 并选择这个 tag。
 
 - 2026-11-12 v0.26.80
   新增：

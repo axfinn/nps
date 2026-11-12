@@ -1,6 +1,6 @@
 ![logo](logo.svg)
 
-# NPS <small>0.26.80</small>
+# NPS <small>0.26.81</small>
 
 > 一款轻量级、高性能、功能强大的内网穿透代理服务器
 

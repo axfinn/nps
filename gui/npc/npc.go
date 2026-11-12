@@ -73,6 +73,7 @@ var serviceFlag = flag.String("service", "", "兼容旧版服务参数（内部�
 
 func main() {
 	// 命令行参数（一次性注册所有 flag，避免重复 flag.Parse 报错）
+	cli := registerCLIFlags()
 	port := flag.Int("port", 0, "本地管理面板端口（默认 9666；被占用时自动随机分配）")
 	installServiceFlag := flag.Bool("install-service", false, "安装系统服务 (内部使用)")
 	noSudo := flag.Bool("no-sudo", false, "兼容旧参数：不再自动提权")
@@ -82,18 +83,49 @@ func main() {
 	noOpenFlag := flag.Bool("no-open", false, "启动时不自动打开浏览器（无头/测试环境）")
 	flag.Parse()
 
-	_ = noSudo
-	trayDisabled = *noTrayFlag
-	autoOpenDisabled = *noOpenFlag
-	serviceMode = *serviceRunFlag || !service.Interactive() || *serviceFlag == "run"
+	if err := resolveCLI(cli); err != nil {
+		fmt.Fprintf(os.Stderr, "参数错误: %v\n", err)
+		os.Exit(2)
+	}
 
 	logs.SetLogger("store")
+	configureLogging(cli)
+
+	if *cli.showVersion {
+		printVersion()
+		return
+	}
+	// -save 要放在 -print-config 之前，否则 "保存并查看" 组合会只查看不保存。
+	if *cli.save {
+		if err := saveEffectiveConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "保存配置失败: %v\n", err)
+			os.Exit(2)
+		}
+	}
+	if *cli.printConfig {
+		printEffectiveConfig(loadConfig())
+		return
+	}
+
+	_ = noSudo
+	trayDisabled = *noTrayFlag || headlessMode
+	autoOpenDisabled = *noOpenFlag || headlessMode
+	// 只认服务配置里显式写入的 -service-run（以及旧版 -service=run）。
+	// 不再用 !service.Interactive() 猜：CI/systemd/无 tty 环境下会把 -headless
+	// 误判成服务模式，导致面板被拉起、命令行参数失效。
+	serviceMode = *serviceRunFlag || *serviceFlag == "run"
 
 	logs.Info("========== NPC GUI 启动 ==========")
 	logs.Info("操作系统: %s", runtime.GOOS)
-	logs.Info("参数: installServiceFlag=%v, serviceFlag=%q, serviceRun=%v, serviceMode=%v, port=%d, homeFlag=%q",
-		*installServiceFlag, *serviceFlag, *serviceRunFlag, serviceMode, *port, *homeFlag)
+	logs.Info("参数: installServiceFlag=%v, serviceFlag=%q, serviceRun=%v, serviceMode=%v, port=%d, homeFlag=%q, headless=%v, autostart=%v",
+		*installServiceFlag, *serviceFlag, *serviceRunFlag, serviceMode, *port, *homeFlag, headlessMode, autoStartMode)
 	logs.Info("================================")
+
+	// 无界面模式：与命令行版 npc 一样跑隧道循环。服务模式优先（由 plist/unit 拉起）。
+	if headlessMode && !serviceMode {
+		runHeadless(loadConfig())
+		return
+	}
 
 	// 1) 服务模式：由 plist/unit 带 -service-run 拉起。服务进程同样启动 Web 面板和状态栏，
 	//    否则开机自启后就只剩一个无界面的隧道进程，用户根本找不到管理地址。
@@ -278,6 +310,17 @@ func runGUI(cliPort int) {
 			time.Sleep(800 * time.Millisecond)
 			openBrowser(url)
 		}()
+	}
+
+	// 显式给了 -server/-vkey/-config 或 -autostart 时自动连，
+	// 不必再进面板点「启动」；纯 GUI 启动（含编译期预置）仍保持原来的手动启动行为。
+	if autoStartMode {
+		cfg := loadConfig()
+		if err := startClient(cfg); err != nil {
+			logs.Warn("自动连接跳过: %v（可在面板配置后手动点「启动」）", err)
+		} else {
+			fmt.Printf("已按启动参数自动连接: %s\n", cfg.Server)
+		}
 	}
 
 	waitForShutdown()
@@ -523,26 +566,42 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 
 	mu.Lock()
 	cfg := curConfig
+	mu.Unlock()
+	if err := startClient(cfg); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// startClient 是面板「启动」按钮、自动启动共用的入口。
+// 面板只维护一个 TRPClient，因此多 vkey 时连第一个（多 vkey 请用 -headless）。
+func startClient(cfg Config) error {
+	mu.Lock()
 	if cfg.Server == "" || cfg.Vkey == "" {
 		mu.Unlock()
-		http.Error(w, "请先配置服务器地址和验证密钥", 400)
-		return
+		return fmt.Errorf("请先配置服务器地址和验证密钥")
 	}
 	if running {
 		mu.Unlock()
-		http.Error(w, "已经在运行中", 400)
-		return
+		return fmt.Errorf("已经在运行中")
 	}
 	running = true
 	closing = false
 	mu.Unlock()
 
 	client.SetTlsEnable(cfg.TlsEnable)
+	if keys := splitVkeys(cfg.Vkey); len(keys) > 1 {
+		logs.Warn("面板模式只连接第一个 vkey（共 %d 个）；多 vkey 请用 -headless", len(keys))
+		cfg.Vkey = keys[0]
+	} else if len(keys) == 1 {
+		cfg.Vkey = keys[0]
+	}
 
 	go runClientLoop(cfg)
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	return nil
 }
 
 func handleStop(w http.ResponseWriter, r *http.Request) {
@@ -1180,20 +1239,45 @@ func saveConfig(cfg Config) error {
 }
 
 func loadConfig() Config {
-	// 优先读用户配置（GUI 保存的位置），再 fallback 到系统配置。
-	// 旧实现优先 /etc/npc：用户在 GUI 改了配置，服务却仍读旧值，是「装完服务
-	// 连接参数不对」的常见原因。
-	cfg, err := readConfigFile(getUserConfigPath())
+	// 1) 编译期预置（最低优先级基底）
+	cfg := Config{}
+	applyBuildDefaults(&cfg)
+
+	// 2) 优先读用户配置（GUI 保存的位置），再 fallback 到系统配置。
+	//    旧实现优先 /etc/npc：用户在 GUI 改了配置，服务却仍读旧值，是「装完服务
+	//    连接参数不对」的常见原因。这里只覆盖文件里显式写过的字段。
+	saved, fields, err := readConfigFile(getUserConfigPath())
 	if err != nil {
-		cfg, err = readConfigFile(getSystemConfigPath())
-		if err != nil {
-			cfg = defaultConfig()
-		}
+		saved, fields, err = readConfigFile(getSystemConfigPath())
+	}
+	if err == nil {
+		mergeExplicitFields(&cfg, saved, fields)
+	}
+
+	// 3) 叠加 -config、环境变量、命令行参数（按注册顺序，低 → 高）。
+	//    放在这里而不是 main 里一次性算好，是为了让服务循环每次重载配置时也能拿到参数。
+	for _, patch := range configPatches {
+		patch(&cfg)
+	}
+	normalizeConfig(&cfg)
+	return cfg
+}
+
+// normalizeConfig 统一做默认填充与清洗；readConfigFile 只负责反序列化，
+// 否则「文件里没写 conn_type」会被填成 tcp，挡住编译期预置的 kcp。
+func normalizeConfig(cfg *Config) {
+	cfg.Server = strings.TrimSpace(cfg.Server)
+	cfg.Vkey = strings.TrimSpace(cfg.Vkey)
+	cfg.ProxyUrl = strings.TrimSpace(cfg.ProxyUrl)
+	if cfg.ConnType == "" {
+		cfg.ConnType = "tcp"
+	}
+	if cfg.DisconnectTimeout <= 0 {
+		cfg.DisconnectTimeout = 60
 	}
 	if cfg.WebPort < 0 || cfg.WebPort > 65535 {
 		cfg.WebPort = 0
 	}
-	return cfg
 }
 
 func saveSystemConfig(cfg Config) error {
@@ -1233,22 +1317,23 @@ func saveJSON(path string, cfg Config, mode os.FileMode) error {
 	return nil
 }
 
-func readConfigFile(path string) (Config, error) {
+func readConfigFile(path string) (Config, map[string]bool, error) {
 	var cfg Config
+	fields := make(map[string]bool)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, err
+		return cfg, fields, err
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return cfg, fmt.Errorf("解析 %s 失败: %w", path, err)
+		return cfg, fields, fmt.Errorf("解析 %s 失败: %w", path, err)
 	}
-	if cfg.ConnType == "" {
-		cfg.ConnType = "tcp"
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		for k := range raw {
+			fields[k] = true
+		}
 	}
-	if cfg.DisconnectTimeout <= 0 {
-		cfg.DisconnectTimeout = 60
-	}
-	return cfg, nil
+	return cfg, fields, nil
 }
 
 // clearAllConfigs 同时清除用户配置和系统配置。

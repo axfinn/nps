@@ -28,6 +28,18 @@ jobs:
               dep ensure
           fi
       - name: Build
+        env:
+          # 可选：定制 npc_gui 发行包。在仓库 Settings 配置这些变量/Secret 后，
+          # build.assets.sh 会把默认值通过 -ldflags -X 烧进 7 个 npc_gui_* 包。
+          # 全部留空时构建的仍是「打开面板自行填写」的通用客户端，行为不变。
+          # 服务器地址用 Variables，验证密钥务必用加密的 Secrets，不要写进仓库文件。
+          NPC_GUI_SERVER: ${{ vars.NPC_GUI_SERVER }}
+          NPC_GUI_VKEY: ${{ secrets.NPC_GUI_VKEY }}
+          NPC_GUI_TYPE: ${{ vars.NPC_GUI_TYPE }}
+          NPC_GUI_TLS: ${{ vars.NPC_GUI_TLS }}
+          NPC_GUI_PROXY: ${{ vars.NPC_GUI_PROXY }}
+          NPC_GUI_DISCONNECT_TIMEOUT: ${{ vars.NPC_GUI_DISCONNECT_TIMEOUT }}
+          NPC_GUI_LABEL: ${{ vars.NPC_GUI_LABEL }}
         run: |
           chmod +x build.assets.sh
           ./build.assets.sh
