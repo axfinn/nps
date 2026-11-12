@@ -49,12 +49,12 @@ func (s *UdpModeServer) Start() error {
 
 		// 判断访问地址是否在全局黑名单内
 		if IsGlobalBlackIp(addr.String()) {
-			break
+			continue
 		}
 
 		// 判断访问地址是否在黑名单内
 		if common.IsBlackIp(addr.String(), s.task.Client.VerifyKey, s.task.Client.BlackIpList) {
-			break
+			continue
 		}
 
 		logs.Trace("New udp connection,client %d,remote address %s", s.task.Client.Id, addr)

@@ -256,8 +256,7 @@ func (s *Sock5ModeServer) handleUDP(c net.Conn) {
 				logs.Warn("read len bytes error", err.Error())
 				return
 			}
-			binary.Read(target, binary.LittleEndian, b[:l])
-			if err != nil {
+			if err := binary.Read(target, binary.LittleEndian, b[:l]); err != nil {
 				logs.Warn("read data form client error", err.Error())
 				return
 			}

@@ -136,7 +136,10 @@ func (s *Conn) WriteLenContent(buf []byte) (err error) {
 // read flag
 func (s *Conn) ReadFlag() (string, error) {
 	buf := make([]byte, 4)
-	return string(buf), binary.Read(s, binary.LittleEndian, &buf)
+	if err := binary.Read(s, binary.LittleEndian, &buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
 }
 
 // set alive

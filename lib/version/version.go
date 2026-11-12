@@ -1,6 +1,6 @@
 package version
 
-const VERSION = "0.26.82"
+const VERSION = "0.26.83"
 
 // Compulsory minimum version, Minimum downward compatibility to this version
 func GetVersion() string {

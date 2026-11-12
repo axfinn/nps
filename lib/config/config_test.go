@@ -49,15 +49,17 @@ p=2
 }
 
 func TestDealCommon(t *testing.T) {
-	s := `server=127.0.0.1:8284
-tp=tcp
+	// Keys must match the real npc config (see conf/npc.conf): server_addr /
+	// conn_type, not the ancient server / tp names the test used to carry.
+	s := `server_addr=127.0.0.1:8284
+conn_type=tcp
 vkey=123`
-	f := new(CommonConfig)
-	f.Server = "127.0.0.1:8284"
-	f.Tp = "tcp"
-	f.VKey = "123"
-	if c := dealCommon(s); *c != *f {
-		t.Fail()
+	c := dealCommon(s)
+	// dealCommon always allocates c.Client and other defaults, so comparing the
+	// whole struct against a hand-built literal is stale/fragile. Check the
+	// fields this test actually exercises.
+	if c.Server != "127.0.0.1:8284" || c.Tp != "tcp" || c.VKey != "123" {
+		t.Fatalf("dealCommon mismatch: got server=%q tp=%q vkey=%q", c.Server, c.Tp, c.VKey)
 	}
 }
 

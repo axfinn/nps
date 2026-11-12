@@ -192,7 +192,7 @@ func (s *Bridge) verifySuccess(c *conn.Conn) {
 func (s *Bridge) cliProcess(c *conn.Conn) {
 	//read test flag
 	if _, err := c.GetShortContent(3); err != nil {
-		logs.Info("The client %s connect error", c.Conn.RemoteAddr(), err.Error())
+		logs.Info("The client %s connect error: %s", c.Conn.RemoteAddr(), err.Error())
 		return
 	}
 	//version check
@@ -309,6 +309,7 @@ func (s *Bridge) typeDeal(typeVal string, c *conn.Conn, id int, vs string) {
 			logs.Error("p2p error, failed to match the key successfully")
 		} else {
 			if v, ok := s.Client.Load(t.Client.Id); !ok {
+				c.Close()
 				return
 			} else {
 				//向密钥对应的客户端发送与服务端udp建立连接信息，地址，密钥

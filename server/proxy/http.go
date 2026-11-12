@@ -224,8 +224,8 @@ reset:
 	connClient = conn.GetConn(target, lk.Crypt, lk.Compress, host.Client.Rate, true)
 
 	//read from inc-client
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		isReset = false
 		defer connClient.Close()
 		defer func() {
