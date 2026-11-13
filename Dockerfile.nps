@@ -1,6 +1,66 @@
 # syntax=docker/dockerfile:1
 # 构建阶段使用 BUILDPLATFORM（即 CI 宿主机的原生架构，通常是 amd64）来编译，
 # 再通过 GOOS/GOARCH 交叉编译到目标平台，从而彻底避免 QEMU 模拟编译（这是之前耗时 46~67 分钟的主因）。
+#
+# assets 阶段与 TARGETOS/TARGETARCH 无关：下载页列出的全部客户端包都在这里交叉编译一次，
+# buildx 的多平台构建可以共用这一层的缓存，避免每个目标平台重复编译 24 次。
+FROM --platform=$BUILDPLATFORM golang:1.22 AS assets
+ARG GOPROXY=https://proxy.golang.org,https://goproxy.cn,direct
+ENV GOPROXY=$GOPROXY
+WORKDIR /go/src/ehang.io/nps
+COPY . .
+RUN go mod download
+
+# 后台「客户端下载」页 (web/views/index/download.html) 指向 /static/download/{client,gui}/*.tar.gz。
+# 这些包以前是仓库里 2025 年的静态 tar.gz，源码改了也不会更新；这里全部按当前源码重新编译，
+# 最终镜像只保留本次产物，保证「发了新版 == 下载到新版」。
+#
+# cli: 17 个命令行客户端，包内含 npc(.exe) + conf/npc.conf + conf/multi_account.conf
+# gui: 7 个 Web GUI 客户端，必须整包 go build ./gui/npc（static/* 走 go:embed），
+#      且保持 CGO_ENABLED=0（状态栏用系统脚本引擎，不引入 cgo）。
+RUN mkdir -p /tmp/dl/client /tmp/dl/gui /tmp/stage && \
+    build_cli() { \
+        _os=$1; _arch=$2; _goarm=$3; _tag=$4; _bin=$5; \
+        if [ -n "$_goarm" ]; then export GOARM="$_goarm"; else unset GOARM; fi; \
+        CGO_ENABLED=0 GOOS="$_os" GOARCH="$_arch" \
+            go build -ldflags "-s -w -extldflags -static" -o "/tmp/stage/$_bin" ./cmd/npc/npc.go && \
+        cp conf/npc.conf conf/multi_account.conf /tmp/stage/ && \
+        tar -czf "/tmp/dl/client/npc_${_tag}.tar.gz" -C /tmp/stage . && \
+        rm -f "/tmp/stage/$_bin"; \
+    } && \
+    build_gui() { \
+        unset GOARM; \
+        _os=$1; _arch=$2; _tag=$3; _bin=$4; \
+        CGO_ENABLED=0 GOOS="$_os" GOARCH="$_arch" \
+            go build -ldflags "-s -w" -o "/tmp/stage/$_bin" ./gui/npc && \
+        tar -czf "/tmp/dl/gui/npc_gui_${_tag}.tar.gz" -C /tmp/stage "$_bin" && \
+        rm -f "/tmp/stage/$_bin"; \
+    } && \
+    build_cli linux   amd64    "" linux_amd64   npc && \
+    build_cli linux   arm64    "" linux_arm64   npc && \
+    build_cli windows amd64    "" windows_amd64 npc.exe && \
+    build_cli darwin  amd64    "" darwin_amd64  npc && \
+    build_cli darwin  arm64    "" darwin_arm64  npc && \
+    build_cli windows 386      "" windows_386   npc.exe && \
+    build_cli linux   386      "" linux_386     npc && \
+    build_cli linux   arm      5  linux_arm_v5  npc && \
+    build_cli linux   arm      6  linux_arm_v6  npc && \
+    build_cli linux   arm      7  linux_arm_v7  npc && \
+    build_cli linux   mips     "" linux_mips    npc && \
+    build_cli linux   mipsle   "" linux_mipsle  npc && \
+    build_cli linux   mips64   "" linux_mips64  npc && \
+    build_cli linux   mips64le "" linux_mips64le npc && \
+    build_cli freebsd 386      "" freebsd_386   npc && \
+    build_cli freebsd amd64    "" freebsd_amd64 npc && \
+    build_cli freebsd arm      "" freebsd_arm   npc && \
+    build_gui windows amd64 windows_amd64 npc_gui.exe && \
+    build_gui windows 386   windows_386   npc_gui.exe && \
+    build_gui linux   amd64 linux_amd64   npc_gui && \
+    build_gui linux   386   linux_386     npc_gui && \
+    build_gui linux   arm64 linux_arm64   npc_gui && \
+    build_gui darwin  amd64 darwin_amd64  npc_gui && \
+    build_gui darwin  arm64 darwin_arm64  npc_gui
+
 FROM --platform=$BUILDPLATFORM golang:1.22 AS builder
 ARG TARGETOS
 ARG TARGETARCH
@@ -17,39 +77,16 @@ RUN go mod download
 # 构建 nps 服务端（交叉编译到目标平台，无需 QEMU 模拟）
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-w -s -extldflags -static" -o /out/nps ./cmd/nps/nps.go
 
-# 构建常用的 npc 客户端（交叉编译，平台无关，一次即可）
-RUN mkdir -p /tmp/downloads /tmp/web/static/download/client
-
-# Linux 客户端
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/linux_amd64/npc ./cmd/npc/npc.go && \
-    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/linux_amd64/ && \
-    tar -czvf /tmp/web/static/download/client/npc_linux_amd64.tar.gz -C /tmp/downloads/linux_amd64 .
-
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/linux_arm64/npc ./cmd/npc/npc.go && \
-    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/linux_arm64/ && \
-    tar -czvf /tmp/web/static/download/client/npc_linux_arm64.tar.gz -C /tmp/downloads/linux_arm64 .
-
-# Windows 客户端
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/windows_amd64/npc.exe ./cmd/npc/npc.go && \
-    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/windows_amd64/ && \
-    tar -czvf /tmp/web/static/download/client/npc_windows_amd64.tar.gz -C /tmp/downloads/windows_amd64 .
-
-# macOS 客户端
-RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/darwin_amd64/npc ./cmd/npc/npc.go && \
-    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/darwin_amd64/ && \
-    tar -czvf /tmp/web/static/download/client/npc_darwin_amd64.tar.gz -C /tmp/downloads/darwin_amd64 .
-
-RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -extldflags -static" -o /tmp/downloads/darwin_arm64/npc ./cmd/npc/npc.go && \
-    cp conf/npc.conf conf/multi_account.conf /tmp/downloads/darwin_arm64/ && \
-    tar -czvf /tmp/web/static/download/client/npc_darwin_arm64.tar.gz -C /tmp/downloads/darwin_arm64 .
-
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 WORKDIR /
 COPY --from=builder /out/nps ./nps
-COPY --from=builder /go/src/ehang.io/nps/web /web
-COPY --from=builder /tmp/web/static/download/client /web/static/download/client
-COPY --from=builder /go/src/ehang.io/nps/conf/nps.conf /conf/nps.conf
+COPY --from=assets /go/src/ehang.io/nps/web /web
+# 丢掉源码里可能残留的旧静态包，镜像里的下载包只来自 assets 阶段的本次编译
+RUN rm -f /web/static/download/client/*.tar.gz /web/static/download/gui/*.tar.gz
+COPY --from=assets /tmp/dl/client /web/static/download/client
+COPY --from=assets /tmp/dl/gui /web/static/download/gui
+COPY --from=assets /go/src/ehang.io/nps/conf/nps.conf /conf/nps.conf
 VOLUME /conf
 EXPOSE 8024 8080 8443
 ENTRYPOINT ["./nps"]
