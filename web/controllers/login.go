@@ -123,7 +123,7 @@ func (self *LoginController) ajaxStatus(status int, msg string) {
 // a bind-email code (requires a logged-in session).
 func (self *LoginController) SendCode() {
 	if !emailLoginEnabled() {
-		self.ajaxStatus(0, "邮箱验证码登录未启用，请先在 nps.conf 中配置 SMTP")
+		self.ajaxStatus(0, "邮箱验证码登录未启用，请先配置中心邮件服务（NPS_MAIL_CLIENT_ID / NPS_MAIL_CLIENT_SECRET）")
 		return
 	}
 	purpose := mail.Purpose(strings.TrimSpace(self.GetString("purpose")))
@@ -176,10 +176,10 @@ func (self *LoginController) SendCode() {
 	}
 	minutes := beego.AppConfig.DefaultInt("email_code_ttl_minutes", 10)
 	body := fmt.Sprintf("你正在%s，验证码是 %s，%d 分钟内有效。\r\n若非本人操作请忽略此邮件，切勿把验证码告诉他人。", action, code, minutes)
-	if err := mail.Send(smtpConfig(), email, subject, body); err != nil {
+	if err := mail.Send(mailServiceConfig(), email, subject, body); err != nil {
 		emailCodeStore().Revoke(email, purpose)
 		log.Printf("nps: send email code to %s failed: %v", email, err)
-		self.ajaxStatus(0, "验证码邮件发送失败，请检查 SMTP 配置或稍后重试")
+		self.ajaxStatus(0, "验证码邮件发送失败，请检查中心邮件服务配置或稍后重试")
 		return
 	}
 	self.ajaxStatus(1, "验证码已发送，请查收邮件")

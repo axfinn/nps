@@ -1,58 +1,76 @@
-// Package mail provides the SMTP delivery used by email verification codes.
+// Package mail delivers verification codes through the central mail service
+// at t.jaxiu.cn/api/mail/v1 (OAuth2 client_credentials + POST /send).
 //
-// The connection strategy mirrors the devtools project (backend/notif):
-// port 465 uses implicit TLS, other ports use STARTTLS when advertised,
-// authentication is SMTP PLAIN with the configured user as the envelope sender.
-// Keeping both projects on the same strategy means the very same smtp_host /
-// smtp_port / smtp_user / smtp_pass values can be pasted into nps.conf.
+// This project keeps no local SMTP configuration: no host, no account, no
+// authorization code. The tenant credentials are supplied by the caller, in
+// practice from the process environment, and the sender must be listed in the
+// tenant's from allowlist on the /mail-service admin page.
 package mail
 
 import (
-	"crypto/tls"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
-	"net"
-	"net/smtp"
-	"os"
-	"strconv"
+	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Config holds the SMTP credentials. Host/User/Password are mandatory; From
-// falls back to User, Port falls back to 465.
+// DefaultBaseURL is the machine-to-machine endpoint of the central mail service.
+const DefaultBaseURL = "https://t.jaxiu.cn/api/mail/v1"
+
+// DefaultFrom is the central mail service's own sender address (mail.from in
+// devtools' config.yaml). The service fills it in when a request omits from,
+// and it is registered in the nps tenant's from allowlist. It is an address,
+// not a credential, so it is safe to keep here as a default.
+const DefaultFrom = "devtools@jaxiu.cn"
+
+// Config holds the tenant credentials. ClientID and ClientSecret are
+// mandatory; From is optional and falls back to DefaultFrom. A custom From
+// must also be added to the tenant's sender allowlist, otherwise the service
+// answers 403 from_not_allowed.
 type Config struct {
-	Host          string
-	Port          int
-	User          string
-	Password      string
+	BaseURL       string
+	ClientID      string
+	ClientSecret  string
 	From          string
 	SubjectPrefix string
 	Timeout       time.Duration
+	HTTPClient    *http.Client // optional, mainly useful for tests
 }
 
-// Configured reports whether the minimum credentials are present.
-func (c Config) Configured() bool {
-	return strings.TrimSpace(c.Host) != "" &&
-		strings.TrimSpace(c.User) != "" &&
-		strings.TrimSpace(c.Password) != "" &&
-		strings.TrimSpace(c.FromOrDefault()) != ""
-}
-
-// FromOrDefault returns the From header value, defaulting to the SMTP user.
+// FromOrDefault returns the sender address, falling back to the central
+// mail service's default sender.
 func (c Config) FromOrDefault() string {
 	if v := strings.TrimSpace(c.From); v != "" {
 		return v
 	}
-	return strings.TrimSpace(c.User)
+	return DefaultFrom
 }
 
-func (c Config) port() int {
-	if c.Port <= 0 {
-		return 465
+// Configured reports whether the minimum credentials are present.
+func (c Config) Configured() bool {
+	return strings.TrimSpace(c.ClientID) != "" &&
+		strings.TrimSpace(c.ClientSecret) != "" &&
+		ValidEmail(c.FromOrDefault())
+}
+
+func (c Config) baseURL() string {
+	if v := strings.TrimRight(strings.TrimSpace(c.BaseURL), "/"); v != "" {
+		return v
 	}
-	return c.Port
+	return DefaultBaseURL
+}
+
+func (c Config) subject(subject string) string {
+	prefix := c.SubjectPrefix
+	if prefix == "" {
+		prefix = "[NPS] "
+	}
+	return prefix + cleanHeaderValue(subject)
 }
 
 func (c Config) timeout() time.Duration {
@@ -62,125 +80,185 @@ func (c Config) timeout() time.Duration {
 	return c.Timeout
 }
 
-// Send delivers one plain-text message. No dependency on the web framework,
-// so callers can plug in configuration from anywhere (or a test server).
-func Send(cfg Config, to, subject, body string) error {
-	if !cfg.Configured() {
-		return fmt.Errorf("mail: smtp not configured")
+func (c Config) httpClient() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{Timeout: c.timeout()}
+}
+
+// cleanHeaderValue strips CR/LF so untrusted input cannot smuggle extra
+// headers into the subject when the service builds the MIME message.
+func cleanHeaderValue(v string) string {
+	v = strings.ReplaceAll(v, "\r", " ")
+	v = strings.ReplaceAll(v, "\n", " ")
+	return strings.TrimSpace(v)
+}
+
+type cachedToken struct {
+	value     string
+	expiresAt time.Time
+}
+
+// access tokens are process local; a restart simply exchanges a new one.
+var (
+	tokenMu    sync.Mutex
+	tokenCache = map[string]cachedToken{}
+)
+
+func tokenCacheKey(c Config) string {
+	return c.baseURL() + "|" + strings.TrimSpace(c.ClientID)
+}
+
+// accessToken returns a cached bearer token, refreshing shortly before
+// expiry. force is used after a 401 so a revoked token is replaced at once.
+func accessToken(c Config, force bool) (string, error) {
+	tokenMu.Lock()
+	defer tokenMu.Unlock()
+	key := tokenCacheKey(c)
+	if !force {
+		if t, ok := tokenCache[key]; ok && time.Now().Add(30*time.Second).Before(t.expiresAt) {
+			return t.value, nil
+		}
+	}
+	value, ttl, err := requestToken(c)
+	if err != nil {
+		return "", err
+	}
+	if ttl <= 0 {
+		// Unknown lifetime: keep it briefly instead of caching forever.
+		ttl = 300
+	}
+	tokenCache[key] = cachedToken{
+		value:     value,
+		expiresAt: time.Now().Add(time.Duration(ttl) * time.Second),
+	}
+	return value, nil
+}
+
+func requestToken(c Config) (string, int, error) {
+	form := url.Values{"grant_type": []string{"client_credentials"}}
+	req, err := http.NewRequest(http.MethodPost, c.baseURL()+"/oauth/token", strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", 0, fmt.Errorf("mail: build token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(strings.TrimSpace(c.ClientID), strings.TrimSpace(c.ClientSecret))
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return "", 0, fmt.Errorf("mail: token request: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return "", 0, fmt.Errorf("mail: read token response: %w", err)
+	}
+	var out struct {
+		AccessToken      string `json:"access_token"`
+		ExpiresIn        int    `json:"expires_in"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", 0, fmt.Errorf("mail: decode token response (HTTP %d): %w", resp.StatusCode, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || out.AccessToken == "" {
+		return "", 0, fmt.Errorf("mail: oauth token (HTTP %d): %s", resp.StatusCode,
+			apiError(out.Error, out.ErrorDescription))
+	}
+	return out.AccessToken, out.ExpiresIn, nil
+}
+
+func apiError(code, description string) string {
+	if code == "" {
+		code = "unknown_error"
+	}
+	if description != "" {
+		return code + ": " + description
+	}
+	return code
+}
+
+// Send delivers one plain-text message through the central mail service.
+// No dependency on the web framework, so callers can plug in configuration
+// from anywhere (or a test server).
+func Send(c Config, to, subject, body string) error {
+	if !c.Configured() {
+		return fmt.Errorf("mail: mail service not configured")
 	}
 	to = strings.TrimSpace(to)
 	if to == "" || !ValidEmail(to) {
 		return fmt.Errorf("mail: invalid recipient")
 	}
+	payload, err := json.Marshal(struct {
+		From    string   `json:"from"`
+		To      []string `json:"to"`
+		Subject string   `json:"subject"`
+		Body    string   `json:"body"`
+	}{
+		From:    c.FromOrDefault(),
+		To:      []string{to},
+		Subject: c.subject(subject),
+		Body:    body,
+	})
+	if err != nil {
+		return fmt.Errorf("mail: encode send request: %w", err)
+	}
 
-	port := cfg.port()
-	host := strings.TrimSpace(cfg.Host)
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	msg := buildMessage(cfg, to, subject, body)
-
-	client, conn, err := dialSMTP(host, addr, port, cfg.timeout())
+	token, err := accessToken(c, false)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = client.Close()
-		_ = conn.Close()
-	}()
-	_ = conn.SetDeadline(time.Now().Add(cfg.timeout()))
-
-	if ok, _ := client.Extension("AUTH"); ok {
-		auth := smtp.PlainAuth("", cfg.User, cfg.Password, host)
-		if err := client.Auth(auth); err != nil {
-			return fmt.Errorf("mail: smtp auth: %w", err)
+	status, detail, err := postSend(c, token, payload)
+	if err != nil {
+		return err
+	}
+	if status == http.StatusUnauthorized {
+		// The token may have been revoked server side: exchange a fresh one
+		// and retry the exact same message once.
+		if token, err = accessToken(c, true); err != nil {
+			return err
+		}
+		if status, detail, err = postSend(c, token, payload); err != nil {
+			return err
 		}
 	}
-	if err := client.Mail(cfg.User); err != nil {
-		return fmt.Errorf("mail: smtp MAIL FROM: %w", err)
+	if status < 200 || status >= 300 {
+		if detail == "" {
+			detail = "no error detail"
+		}
+		return fmt.Errorf("mail: send (HTTP %d): %s", status, detail)
 	}
-	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("mail: smtp RCPT TO: %w", err)
-	}
-	wc, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("mail: smtp DATA: %w", err)
-	}
-	if _, err := io.WriteString(wc, msg); err != nil {
-		_ = wc.Close()
-		return fmt.Errorf("mail: smtp write: %w", err)
-	}
-	if err := wc.Close(); err != nil {
-		return fmt.Errorf("mail: smtp commit: %w", err)
-	}
-	// Some servers close the connection before answering QUIT. The message is
-	// already committed at this point, so do not treat it as a failure.
-	_ = client.Quit()
 	return nil
 }
 
-func dialSMTP(host, addr string, port int, timeout time.Duration) (*smtp.Client, net.Conn, error) {
-	dialer := &net.Dialer{Timeout: timeout}
-	tlsCfg := &tls.Config{ServerName: host}
-	var (
-		conn   net.Conn
-		client *smtp.Client
-		err    error
-	)
-	if port == 465 {
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, tlsCfg)
-		if err != nil {
-			return nil, nil, fmt.Errorf("mail: smtp ssl dial: %w", err)
-		}
-		client, err = smtp.NewClient(conn, host)
-	} else {
-		conn, err = dialer.Dial("tcp", addr)
-		if err != nil {
-			return nil, nil, fmt.Errorf("mail: smtp dial: %w", err)
-		}
-		client, err = smtp.NewClient(conn, host)
-		if err == nil {
-			if ok, _ := client.Extension("STARTTLS"); ok {
-				if err = client.StartTLS(tlsCfg); err != nil {
-					_ = client.Close()
-					_ = conn.Close()
-					return nil, nil, fmt.Errorf("mail: smtp starttls: %w", err)
-				}
-			}
-		}
-	}
+func postSend(c Config, token string, payload []byte) (int, string, error) {
+	req, err := http.NewRequest(http.MethodPost, c.baseURL()+"/send", bytes.NewReader(payload))
 	if err != nil {
-		if conn != nil {
-			_ = conn.Close()
-		}
-		return nil, nil, fmt.Errorf("mail: smtp client: %w", err)
+		return 0, "", fmt.Errorf("mail: build send request: %w", err)
 	}
-	return client, conn, nil
-}
-
-func buildMessage(cfg Config, to, subject, body string) string {
-	prefix := cfg.SubjectPrefix
-	if prefix == "" {
-		prefix = "[NPS] "
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient().Do(req)
+	if err != nil {
+		return 0, "", fmt.Errorf("mail: send request: %w", err)
 	}
-	messageIDHost := "nps.local"
-	if h, err := os.Hostname(); err == nil && strings.TrimSpace(h) != "" {
-		messageIDHost = h
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, "", fmt.Errorf("mail: read send response: %w", err)
 	}
-	headers := []string{
-		"From: " + headerValue(cfg.FromOrDefault()),
-		"To: " + headerValue(to),
-		"Subject: " + mime.QEncoding.Encode("UTF-8", prefix+headerValue(subject)),
-		"Date: " + time.Now().Format(time.RFC1123Z),
-		fmt.Sprintf("Message-ID: <%d.%s@%s>", time.Now().UnixNano(), randomHex(8), messageIDHost),
-		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
-		"Content-Transfer-Encoding: 8bit",
+	var out struct {
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
 	}
-	return strings.Join(headers, "\r\n") + "\r\n\r\n" + body
-}
-
-// headerValue strips CR/LF so untrusted input cannot inject extra headers.
-func headerValue(v string) string {
-	v = strings.ReplaceAll(v, "\r", " ")
-	v = strings.ReplaceAll(v, "\n", " ")
-	return strings.TrimSpace(v)
+	if err := json.Unmarshal(raw, &out); err != nil && len(raw) > 0 {
+		// A non-JSON error page is still worth reporting verbatim.
+		return resp.StatusCode, strings.TrimSpace(string(raw)), nil
+	}
+	detail := ""
+	if out.Error != "" || out.ErrorDescription != "" {
+		detail = apiError(out.Error, out.ErrorDescription)
+	}
+	return resp.StatusCode, detail, nil
 }

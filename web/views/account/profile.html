@@ -22,10 +22,10 @@
 
                 {{if not .email_login_enable}}
                     <div class="alert alert-warning">
-                        邮箱验证码登录当前未启用。请在 <code>nps.conf</code> 中配置
-                        <code>smtp_host / smtp_port / smtp_user / smtp_pass</code> 并确认
+                        邮箱验证码登录当前未启用。请在服务进程环境变量中配置中心邮件服务
+                        <code>NPS_MAIL_CLIENT_ID / NPS_MAIL_CLIENT_SECRET</code> 并确认
                         <code>email_login_enable=true</code> 后重启服务。
-                        {{if .smtp_configured}}SMTP 凭据已配置，但功能开关处于关闭状态。{{end}}
+                        {{if .mail_service_configured}}中心邮件服务凭据已配置，但功能开关处于关闭状态。{{end}}
                     </div>
                 {{else if not .user_id}}
                     <div class="alert alert-warning">

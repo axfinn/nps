@@ -2,7 +2,6 @@ package mail
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -47,14 +46,6 @@ func NormalizeEmail(s string) string {
 // ValidEmail performs a pragmatic format check (the same one devtools uses).
 func ValidEmail(s string) bool {
 	return emailRe.MatchString(NormalizeEmail(s))
-}
-
-func randomHex(n int) string {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
 }
 
 // GenNumericCode returns a cryptographically random six digit code.
@@ -158,7 +149,7 @@ func (s *CodeStore) Issue(email string, purpose Purpose, ip string) (string, err
 	return code, nil
 }
 
-// Revoke drops a code, e.g. when the SMTP delivery failed.
+// Revoke drops a code, e.g. when the mail service delivery failed.
 func (s *CodeStore) Revoke(email string, purpose Purpose) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

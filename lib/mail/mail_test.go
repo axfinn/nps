@@ -1,11 +1,15 @@
 package mail
 
 import (
-	"bufio"
+	"encoding/json"
 	"errors"
-	"net"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -123,105 +127,250 @@ func TestConfigured(t *testing.T) {
 	if (Config{}).Configured() {
 		t.Fatal("empty config must be unconfigured")
 	}
-	cfg := Config{Host: "smtp.example.com", Port: 465, User: "noreply@example.com", Password: "secret"}
-	if !cfg.Configured() || cfg.FromOrDefault() != "noreply@example.com" || cfg.port() != 465 {
-		t.Fatal("config defaults failed")
+	cfg := Config{ClientID: "mt_test", ClientSecret: "secret", From: "noreply@example.com"}
+	if !cfg.Configured() {
+		t.Fatal("complete tenant config must be configured")
+	}
+	// From is optional: the central service's default sender is used.
+	if !(Config{ClientID: "mt_test", ClientSecret: "secret"}).Configured() {
+		t.Fatal("from should be optional")
+	}
+	if (Config{ClientID: "mt_test", ClientSecret: "secret"}).FromOrDefault() != DefaultFrom {
+		t.Fatal("default sender failed")
+	}
+	if (Config{From: "noreply@example.com"}).FromOrDefault() != "noreply@example.com" {
+		t.Fatal("explicit from must win")
+	}
+	if (Config{ClientID: "mt_test", ClientSecret: "secret", From: "bad"}).Configured() {
+		t.Fatal("invalid explicit from must be rejected")
+	}
+	if cfg.baseURL() != DefaultBaseURL {
+		t.Fatal("default base url failed")
+	}
+	if (Config{BaseURL: "http://127.0.0.1:1/api/mail/v1/"}).baseURL() != "http://127.0.0.1:1/api/mail/v1" {
+		t.Fatal("trailing slash not trimmed")
+	}
+	if cfg.subject("hi") != "[NPS] hi" {
+		t.Fatal("subject prefix failed")
 	}
 	if err := Send(Config{}, "a@b.com", "s", "b"); err == nil {
 		t.Fatal("unconfigured send must fail")
 	}
+	if err := Send(cfg, "not-an-address", "s", "b"); err == nil {
+		t.Fatal("invalid recipient must fail")
+	}
 }
 
-// startFakeSMTP is a minimal, non-TLS SMTP server used to verify the whole
-// dial/EHLO/MAIL/RCPT/DATA flow without touching the network.
-func startFakeSMTP(t *testing.T) (host string, port int, received chan string) {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
+func TestDefaultFromIsSent(t *testing.T) {
+	f, srv := newFakeMailService(t, "mt_test", "secret")
+	cfg := testConfig(srv)
+	cfg.From = "" // NPS_MAIL_FROM unset
+	if err := Send(cfg, "user@example.com", "test", "body"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ln.Close() })
-	received = make(chan string, 1)
-	go func() {
-		conn, err := ln.Accept()
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		r := bufio.NewReader(conn)
-		w := bufio.NewWriter(conn)
-		write := func(s string) { _, _ = w.WriteString(s); _ = w.Flush() }
-		write("220 localhost ESMTP ready\r\n")
-		inData := false
-		var body strings.Builder
-		for {
-			line, err := r.ReadString('\n')
-			if err != nil {
-				return
-			}
-			if inData {
-				if strings.TrimSpace(line) == "." {
-					write("250 OK queued\r\n")
-					inData = false
-					received <- body.String()
-					continue
-				}
-				body.WriteString(line)
-				continue
-			}
-			cmd := strings.ToUpper(strings.TrimSpace(line))
-			switch {
-			case strings.HasPrefix(cmd, "EHLO"), strings.HasPrefix(cmd, "HELO"):
-				// Deliberately advertise neither AUTH nor STARTTLS.
-				write("250-localhost\r\n250 SIZE 10485760\r\n")
-			case cmd == "DATA":
-				write("354 End data with <CR><LF>.<CR><LF>\r\n")
-				inData = true
-				body.Reset()
-			case cmd == "QUIT":
-				write("221 Bye\r\n")
-				return
-			default:
-				write("250 OK\r\n")
-			}
-		}
-	}()
-	addr := ln.Addr().(*net.TCPAddr)
-	return "127.0.0.1", addr.Port, received
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.lastFrom != DefaultFrom {
+		t.Fatalf("default sender not used, got %q", f.lastFrom)
+	}
 }
 
-func TestSendOverSMTP(t *testing.T) {
-	host, port, received := startFakeSMTP(t)
-	cfg := Config{
-		Host:          host,
-		Port:          port,
-		User:          "noreply@example.com",
-		Password:      "secret",
+// fakeMailService mimics POST /oauth/token and POST /send so the whole
+// client_credentials -> bearer -> JSON send flow can run offline.
+type fakeMailService struct {
+	mu           sync.Mutex
+	clientID     string
+	clientSecret string
+	token        string
+	tokenCalls   int
+	sendCalls    int
+	basicOK      bool
+	grantOK      bool
+	lastBearer   string
+	lastType     string
+	lastFrom     string
+	lastTo       []string
+	lastSubject  string
+	lastBody     string
+
+	// configurable behaviour
+	unauthorizedOnce bool
+	sendStatus       int
+	sendErrorCode    string
+	sendErrorDesc    string
+	rejectToken      bool
+}
+
+func newFakeMailService(t *testing.T, clientID, secret string) (*fakeMailService, *httptest.Server) {
+	t.Helper()
+	f := &fakeMailService{clientID: clientID, clientSecret: secret}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/token", f.handleToken)
+	mux.HandleFunc("/send", f.handleSend)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return f, srv
+}
+
+func (f *fakeMailService) handleToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	_ = r.ParseForm()
+	user, pass, ok := r.BasicAuth()
+	f.mu.Lock()
+	f.tokenCalls++
+	f.basicOK = ok && user == f.clientID && pass == f.clientSecret
+	f.grantOK = r.PostForm.Get("grant_type") == "client_credentials"
+	valid := f.basicOK && f.grantOK
+	token := fmt.Sprintf("tk_%d", f.tokenCalls)
+	if valid {
+		f.token = token
+	}
+	f.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	if !valid || f.rejectToken {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_client"})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"access_token": token, "token_type": "Bearer", "expires_in": 3600, "scope": "mail:send",
+	})
+}
+
+func (f *fakeMailService) handleSend(w http.ResponseWriter, r *http.Request) {
+	raw, _ := io.ReadAll(r.Body)
+	var p struct {
+		From    string   `json:"from"`
+		To      []string `json:"to"`
+		Subject string   `json:"subject"`
+		Body    string   `json:"body"`
+	}
+	_ = json.Unmarshal(raw, &p)
+
+	f.mu.Lock()
+	f.sendCalls++
+	f.lastBearer = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	f.lastType = r.Header.Get("Content-Type")
+	f.lastFrom, f.lastTo, f.lastSubject, f.lastBody = p.From, p.To, p.Subject, p.Body
+	valid := f.lastBearer == f.token
+	reject := f.unauthorizedOnce
+	if reject {
+		f.unauthorizedOnce = false // consume: only the next send is refused
+	}
+	status := f.sendStatus
+	code, desc := f.sendErrorCode, f.sendErrorDesc
+	f.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	if !valid || reject {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_token"})
+		return
+	}
+	if status != 0 {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "error_description": desc})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "sent", "message": "email delivered via mail service"})
+}
+
+func testConfig(srv *httptest.Server) Config {
+	return Config{
+		BaseURL:       srv.URL,
+		ClientID:      "mt_test",
+		ClientSecret:  "secret",
+		From:          "noreply@example.com",
 		SubjectPrefix: "[NPS] ",
 		Timeout:       3 * time.Second,
+		HTTPClient:    srv.Client(),
 	}
+}
+
+func TestSendViaMailService(t *testing.T) {
+	f, srv := newFakeMailService(t, "mt_test", "secret")
+	cfg := testConfig(srv)
 	if err := Send(cfg, "user@example.com", "登录验证码", "你的验证码是 123456"); err != nil {
 		t.Fatal("send failed:", err)
 	}
-	select {
-	case msg := <-received:
-		for _, want := range []string{"From: noreply@example.com", "To: user@example.com",
-			"Content-Type: text/plain; charset=UTF-8", "123456", "=?UTF-8?"} {
-			if !strings.Contains(msg, want) {
-				t.Fatalf("message missing %q:\n%s", want, msg)
-			}
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("fake SMTP server received no message")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tokenCalls != 1 || f.sendCalls != 1 || !f.basicOK || !f.grantOK {
+		t.Fatalf("oauth flow incorrect: token=%d send=%d basic=%v grant=%v",
+			f.tokenCalls, f.sendCalls, f.basicOK, f.grantOK)
+	}
+	if f.lastBearer != "tk_1" || f.lastType != "application/json" {
+		t.Fatalf("send headers incorrect: bearer=%q content-type=%q", f.lastBearer, f.lastType)
+	}
+	if f.lastFrom != "noreply@example.com" || len(f.lastTo) != 1 || f.lastTo[0] != "user@example.com" {
+		t.Fatalf("send addresses incorrect: from=%q to=%v", f.lastFrom, f.lastTo)
+	}
+	if f.lastSubject != "[NPS] 登录验证码" || f.lastBody != "你的验证码是 123456" {
+		t.Fatalf("send content incorrect: subject=%q body=%q", f.lastSubject, f.lastBody)
 	}
 }
 
-func TestBuildMessageHeaderInjection(t *testing.T) {
-	cfg := Config{Host: "h", User: "noreply@example.com", Password: "p"}
-	msg := buildMessage(cfg, "user@example.com", "hi\r\nBcc: attacker@x.com", "body")
-	if strings.Contains(msg, "\r\nBcc:") || strings.Contains(msg, "\r\n\r\nBcc") {
-		// The CRLF must be flattened into the Subject value, never start a
-		// new header line that a server would interpret as a recipient.
-		t.Fatal("header injection not sanitized")
+func TestTokenReuseAndRefreshAfter401(t *testing.T) {
+	f, srv := newFakeMailService(t, "mt_test", "secret")
+	cfg := testConfig(srv)
+	if err := Send(cfg, "a@x.com", "one", "one"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Send(cfg, "b@x.com", "two", "two"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	if f.tokenCalls != 1 || f.sendCalls != 2 {
+		t.Fatalf("token should be cached: token=%d send=%d", f.tokenCalls, f.sendCalls)
+	}
+	f.unauthorizedOnce = true
+	f.mu.Unlock()
+
+	// Next send is rejected with 401: the client must force a token refresh
+	// and retry, which consumes the "once" flag on the following call.
+	if err := Send(cfg, "c@x.com", "three", "three"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tokenCalls != 2 || f.sendCalls != 4 || f.lastBearer != "tk_2" {
+		t.Fatalf("refresh retry incorrect: token=%d send=%d bearer=%q", f.tokenCalls, f.sendCalls, f.lastBearer)
+	}
+}
+
+func TestSendErrorPropagation(t *testing.T) {
+	f, srv := newFakeMailService(t, "mt_test", "secret")
+	f.sendStatus = http.StatusForbidden
+	f.sendErrorCode = "from_not_allowed"
+	f.sendErrorDesc = "from address not allowed by tenant scope"
+	err := Send(testConfig(srv), "a@x.com", "s", "b")
+	if err == nil || !strings.Contains(err.Error(), "from_not_allowed") ||
+		!strings.Contains(err.Error(), "HTTP 403") {
+		t.Fatal("send error not propagated:", err)
+	}
+}
+
+func TestInvalidClient(t *testing.T) {
+	f, srv := newFakeMailService(t, "mt_test", "secret")
+	f.rejectToken = true
+	err := Send(testConfig(srv), "a@x.com", "s", "b")
+	if err == nil || !strings.Contains(err.Error(), "invalid_client") {
+		t.Fatal("token error not propagated:", err)
+	}
+}
+
+func TestSubjectHeaderInjection(t *testing.T) {
+	f, srv := newFakeMailService(t, "mt_test", "secret")
+	if err := Send(testConfig(srv), "a@x.com", "hi\r\nBcc: attacker@x.com", "body"); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if strings.ContainsAny(f.lastSubject, "\r\n") || !strings.Contains(f.lastSubject, "Bcc:") {
+		t.Fatalf("CR/LF must be flattened into the JSON subject, got %q", f.lastSubject)
 	}
 }

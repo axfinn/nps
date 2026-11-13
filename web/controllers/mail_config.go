@@ -2,7 +2,7 @@ package controllers
 
 import (
 	"os"
-	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,45 +10,50 @@ import (
 	"github.com/astaxie/beego"
 )
 
-// SMTP settings use the same field names as the devtools project, so the four
-// values from devtools' config.yaml (smtp_host / smtp_port / smtp_user /
-// smtp_pass) can be copied into nps.conf verbatim. Environment variables are
-// also honoured, which is handy for docker deployments where the password
-// should not live in a mounted config file.
-func smtpConfig() mail.Config {
+// mailServiceConfig builds the tenant config for the central mail service.
+// Credentials come from the process environment only: no SMTP host, account
+// or secret is kept in nps.conf or anywhere else in this repository. Docker
+// deployments should pass them with -e (or mount a 0600 file for the secret).
+// The sender is optional: mail.DefaultFrom (devtools@jaxiu.cn), the central
+// service's own sender, is used when NPS_MAIL_FROM is unset.
+func mailServiceConfig() mail.Config {
 	cfg := mail.Config{
-		Host:          beego.AppConfig.String("smtp_host"),
-		Port:          beego.AppConfig.DefaultInt("smtp_port", 465),
-		User:          beego.AppConfig.String("smtp_user"),
-		Password:      beego.AppConfig.String("smtp_pass"),
-		From:          beego.AppConfig.String("smtp_from"),
+		BaseURL:       envOrEmpty("NPS_MAIL_BASE_URL"),
+		ClientID:      envOrEmpty("NPS_MAIL_CLIENT_ID"),
+		ClientSecret:  envOrFile("NPS_MAIL_CLIENT_SECRET"),
+		From:          envOrEmpty("NPS_MAIL_FROM"),
 		SubjectPrefix: "[NPS] ",
 	}
-	if v := os.Getenv("NPS_SMTP_HOST"); v != "" {
-		cfg.Host = v
-	}
-	if v := os.Getenv("NPS_SMTP_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.Port = n
-		}
-	}
-	if v := os.Getenv("NPS_SMTP_USER"); v != "" {
-		cfg.User = v
-	}
-	if v := os.Getenv("NPS_SMTP_PASS"); v != "" {
-		cfg.Password = v
-	}
-	if v := os.Getenv("NPS_SMTP_FROM"); v != "" {
-		cfg.From = v
+	if v := envOrEmpty("NPS_MAIL_SUBJECT_PREFIX"); v != "" {
+		cfg.SubjectPrefix = v
 	}
 	return cfg
 }
 
-// emailLoginEnabled is true only when the feature is switched on AND the SMTP
-// credentials are complete. An unconfigured server simply keeps the classic
-// password login and never exposes the email tab.
+func envOrEmpty(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
+}
+
+// envOrFile lets docker deployments keep the client_secret out of the
+// process environment (which shows up in docker inspect) by mounting a file:
+// NPS_MAIL_CLIENT_SECRET_FILE=/run/secrets/nps_mail_client_secret.
+func envOrFile(key string) string {
+	if v := envOrEmpty(key); v != "" {
+		return v
+	}
+	if path := envOrEmpty(key + "_FILE"); path != "" {
+		if b, err := os.ReadFile(path); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	return ""
+}
+
+// emailLoginEnabled is true only when the feature is switched on AND the
+// central mail service credentials are complete. An unconfigured server
+// simply keeps the classic password login and never exposes the email tab.
 func emailLoginEnabled() bool {
-	return beego.AppConfig.DefaultBool("email_login_enable", true) && smtpConfig().Configured()
+	return beego.AppConfig.DefaultBool("email_login_enable", true) && mailServiceConfig().Configured()
 }
 
 var (

@@ -18,7 +18,7 @@ func (s *AccountController) Profile() {
 	u := s.SessionUser()
 	s.Data["menu"] = "account"
 	s.Data["email_login_enable"] = emailLoginEnabled()
-	s.Data["smtp_configured"] = smtpConfig().Configured()
+	s.Data["mail_service_configured"] = mailServiceConfig().Configured()
 	s.Data["code_ttl_minutes"] = beego.AppConfig.DefaultInt("email_code_ttl_minutes", 10)
 	s.Data["resend_seconds"] = beego.AppConfig.DefaultInt("email_code_resend_seconds", 60)
 	s.Data["username"] = s.GetSession("username")
@@ -38,7 +38,7 @@ func (s *AccountController) Profile() {
 // verification of the mailbox.
 func (s *AccountController) BindEmail() {
 	if !emailLoginEnabled() {
-		s.AjaxErr("邮箱验证码登录未启用，请先在 nps.conf 中配置 SMTP")
+		s.AjaxErr("邮箱验证码登录未启用，请先配置中心邮件服务（NPS_MAIL_CLIENT_ID / NPS_MAIL_CLIENT_SECRET）")
 		return
 	}
 	u := s.SessionUser()

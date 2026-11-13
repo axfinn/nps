@@ -129,24 +129,39 @@ Release workflow（`pkg.yml`）的 Build 步骤已接好同名变量：密钥读
 
 ## 邮箱验证码登录与账号权限
 
-### 配置 SMTP
+### 接入中心邮件服务
 
-在 `conf/nps.conf` 末尾填写发信参数。**字段名与 devtools 项目的 `config.yaml` 一致**，可直接复制那边 `smtp_host / smtp_port / smtp_user / smtp_pass` 四项；`465` 走隐式 TLS，其它端口在服务端支持时走 STARTTLS，认证使用 SMTP PLAIN。
+发信不再走本地 SMTP：本项目不保存任何 SMTP 主机、账号或授权码，统一通过
+`https://t.jaxiu.cn/api/mail/v1` 的中心邮件服务投递——先用 OAuth2
+`client_credentials` 换取 `access_token`（进程内缓存、过期自动刷新），再以
+`Authorization: Bearer` 调 `POST /send`。**租户凭据只从服务进程环境变量读取，
+`conf/nps.conf` 与仓库里不写任何密钥。**
 
-```ini
-email_login_enable=true
-smtp_host=smtp.exmail.qq.com
-smtp_port=465
-smtp_user=noreply@example.com
-smtp_pass=你的授权码
-smtp_from=                     # 留空则用 smtp_user 作为发件人
-email_code_ttl_minutes=10      # 验证码有效期
-email_code_resend_seconds=60   # 同一邮箱重发间隔
-email_code_max_attempts=5      # 最多错误次数，超出即作废
-email_code_ip_limit=10         # 单 IP 每小时发码上限
+| 环境变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `NPS_MAIL_CLIENT_ID` | 是 | 在 `/mail-service` 管理页「注册新业务」拿到的 client_id |
+| `NPS_MAIL_CLIENT_SECRET` | 是 | 同一次注册返回的 client_secret（只显示一次，丢失需轮换） |
+| `NPS_MAIL_FROM` | 否 | 默认 `devtools@jaxiu.cn`（中心服务自身发件人，已登记在 nps 业务白名单内）。改用其它地址时**必须**同步加进该业务的发件人白名单（精确地址、`@domain` 后缀或 `*`），否则返回 403 `from_not_allowed` |
+| `NPS_MAIL_BASE_URL` | 否 | 默认 `https://t.jaxiu.cn/api/mail/v1` |
+| `NPS_MAIL_SUBJECT_PREFIX` | 否 | 默认 `[NPS] ` |
+
+示意（生产已有同名容器时，请按实际 tag / 容器名调整，或改用现有部署脚本）：
+
+```bash
+docker run -d --net=host --restart=always -v /root/docker/nps/conf:/conf \
+  -e NPS_MAIL_CLIENT_ID='<client_id>' \
+  -e NPS_MAIL_CLIENT_SECRET='<client_secret>' \
+  --name new_nps_axiu_plus axiu/nps:<tag> -conf_path=/
 ```
 
-也可通过环境变量覆盖（Docker 部署推荐，避免密码落盘）：`NPS_SMTP_HOST`、`NPS_SMTP_PORT`、`NPS_SMTP_USER`、`NPS_SMTP_PASS`、`NPS_SMTP_FROM`。四项 SMTP 凭据未填齐时，登录页自动退回纯密码登录，不影响原有功能。
+不想让密钥出现在 `docker inspect` 里时，可把 client_secret 写进一个 0600 文件，
+改用 `NPS_MAIL_CLIENT_SECRET_FILE=/run/secrets/nps_mail_client_secret` 指向它。
+中心服务在请求不带 `from` 时也会填自己的默认发件人，但**白名单为空时连默认发件人一起拒绝**，
+所以 nps 客户端始终显式发送 `from`（默认 `devtools@jaxiu.cn`）。
+
+验证码相关参数仍在 `conf/nps.conf`：`email_login_enable`、`email_code_ttl_minutes`、
+`email_code_resend_seconds`、`email_code_max_attempts`、`email_code_ip_limit`。
+两个必填环境变量未齐备时，登录页自动退回纯密码登录，不影响原有功能。
 
 ### 绑定与使用
 
@@ -199,6 +214,16 @@ docker run -d --name npc \
 | vkey | 认证密钥 |
 
 # 更新日志
+
+- 2026-11-13 v0.26.84
+  变更：
+  - **发信统一接入中心邮件服务** `t.jaxiu.cn/api/mail/v1`：移除本地 SMTP 全套实现与 `smtp_*` 配置，
+    改走 OAuth2 `client_credentials` 换 token（进程内缓存、过期自动刷新）+ `POST /send`；
+    租户凭据只从环境变量注入（必填 `NPS_MAIL_CLIENT_ID` / `NPS_MAIL_CLIENT_SECRET`），
+    仓库与 `conf/nps.conf` 不再保存任何发信密钥。默认发件人 `devtools@jaxiu.cn`，
+    必须登记在该业务的发件人白名单内。
+  - 单测改为假中心服务，覆盖 Basic 认证、Bearer、token 复用、401 刷新重试、403 错误透传、
+    默认发件人与主题注入防护。
 
 - 2026-11-12 v0.26.81
   新增：
@@ -258,7 +283,7 @@ docker run -d --name npc \
 
 - 2026-11-12 v0.26.75
   新增：
-  - 支持用户邮箱绑定与邮箱验证码登录：SMTP 配置沿用 devtools 的字段名与连接策略，支持 `nps.conf` 与环境变量两种配置方式；验证码限时、一次性、按用途隔离，并带邮箱 / IP 双重限流。
+  - 支持用户邮箱绑定与邮箱验证码登录：发信统一接入 `t.jaxiu.cn` 中心邮件服务（OAuth2 client_credentials + `/send`），本地不再保存 SMTP 配置，租户凭据只走环境变量；验证码限时、一次性、按用途隔离，并带邮箱 / IP 双重限流。
   - 新增「账号与安全」自助页面，用户可自行通过邮箱验证码绑定 / 解绑邮箱；超管可在用户管理中直接设置。
   - 普通用户可自助新增客户端并自动归属本人；同时收紧越权校验，无客户端的普通用户不再被当作「可见全部客户端」。
   - 普通用户可编辑 / 启停 / 删除自己的客户端，但配额与旧版 Web 凭据仍仅超管可改；修复旧版图片验证码校验失败后仍继续尝试登录的问题。
