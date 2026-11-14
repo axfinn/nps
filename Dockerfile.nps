@@ -61,6 +61,10 @@ RUN mkdir -p /tmp/dl/client /tmp/dl/gui /tmp/stage && \
     build_gui darwin  amd64 darwin_amd64  npc_gui && \
     build_gui darwin  arm64 darwin_arm64  npc_gui
 
+# 在线检查更新用的版本清单：必须与本次编译出的 tar.gz 同批生成，
+# 否则清单里的 sha256 会指向旧包，客户端会直接拒绝下载。
+RUN bash ./scripts/gen_client_version.sh /tmp/dl/client-version.json /tmp/dl/gui /tmp/dl/client
+
 FROM --platform=$BUILDPLATFORM golang:1.22 AS builder
 ARG TARGETOS
 ARG TARGETARCH
@@ -86,6 +90,7 @@ COPY --from=assets /go/src/ehang.io/nps/web /web
 RUN rm -f /web/static/download/client/*.tar.gz /web/static/download/gui/*.tar.gz
 COPY --from=assets /tmp/dl/client /web/static/download/client
 COPY --from=assets /tmp/dl/gui /web/static/download/gui
+COPY --from=assets /tmp/dl/client-version.json /web/static/download/client-version.json
 COPY --from=assets /go/src/ehang.io/nps/conf/nps.conf /conf/nps.conf
 VOLUME /conf
 EXPOSE 8024 8080 8443

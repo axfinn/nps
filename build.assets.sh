@@ -206,6 +206,7 @@ npc_gui_ldflag buildTlsEnable         "${NPC_GUI_TLS:-}"               || exit 1
 npc_gui_ldflag buildProxyUrl          "${NPC_GUI_PROXY:-}"             || exit 1
 npc_gui_ldflag buildDisconnectTimeout "${NPC_GUI_DISCONNECT_TIMEOUT:-}" || exit 1
 npc_gui_ldflag buildLabel             "${NPC_GUI_LABEL:-}"             || exit 1
+npc_gui_ldflag buildUpdateURL         "${NPC_GUI_UPDATE_URL:-}"          || exit 1
 
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "$NPC_GUI_LDFLAGS" -o npc_gui.exe ./gui/npc
 tar -czvf npc_gui_windows_amd64.tar.gz npc_gui.exe
@@ -227,3 +228,15 @@ tar -czvf npc_gui_darwin_amd64.tar.gz npc_gui
 
 CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "$NPC_GUI_LDFLAGS" -o npc_gui ./gui/npc
 tar -czvf npc_gui_darwin_arm64.tar.gz npc_gui
+
+# 生成在线检查更新用的版本清单（仓库静态包目录存在时）。
+# 先把本次编译出的 7 个 GUI 包同步进目录，保证清单里的 version 与包内二进制版本一致；
+# 镜像里由 Dockerfile.nps 的 assets 阶段针对本次编译产物单独生成，二者互不依赖。
+if [ -d web/static/download/gui ]; then
+  for f in npc_gui_*.tar.gz; do
+    if [ -e "$f" ]; then cp -f "$f" web/static/download/gui/; fi
+  done
+  bash ./scripts/gen_client_version.sh \
+    web/static/download/client-version.json \
+    web/static/download/gui web/static/download/client
+fi

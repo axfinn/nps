@@ -40,6 +40,7 @@ var (
 	buildProxyUrl          string
 	buildDisconnectTimeout string
 	buildLabel             string
+	buildUpdateURL         string // NPC_GUI_UPDATE_URL：默认更新源（下载页 base）
 )
 
 var (
@@ -61,6 +62,7 @@ type configOverride struct {
 	tlsEnable         *bool
 	disconnectTimeout *int
 	webPort           *int
+	updateURL         *string
 }
 
 func (o configOverride) apply(cfg *Config) {
@@ -85,6 +87,9 @@ func (o configOverride) apply(cfg *Config) {
 	if o.webPort != nil {
 		cfg.WebPort = *o.webPort
 	}
+	if o.updateURL != nil {
+		cfg.UpdateUrl = *o.updateURL
+	}
 }
 
 func strPtr(v string) *string { return &v }
@@ -108,6 +113,7 @@ func applyBuildDefaults(cfg *Config) {
 	if b, err := strconv.ParseBool(strings.TrimSpace(buildTlsEnable)); err == nil {
 		cfg.TlsEnable = b
 	}
+	cfg.UpdateUrl = strings.TrimSpace(buildUpdateURL)
 }
 
 // mergeExplicitFields 只覆盖 JSON 里真实出现过的字段，
@@ -134,6 +140,9 @@ func mergeExplicitFields(dst *Config, src Config, fields map[string]bool) {
 	if fields["web_port"] {
 		dst.WebPort = src.WebPort
 	}
+	if fields["update_url"] {
+		dst.UpdateUrl = src.UpdateUrl
+	}
 }
 
 // cliFlags 汇总新增的运行参数。注册在默认的 flag.CommandLine 上，
@@ -155,6 +164,13 @@ type cliFlags struct {
 	logLevel          *string
 	logPath           *string
 	pprof             *string
+	upgrade           *bool
+	upgradePlan       *bool
+	upgradeFrom       *string
+	upgradeYes        *bool
+	updateCheck       *bool
+	updateApply       *bool
+	updateURL         *string
 }
 
 func registerCLIFlags() *cliFlags {
@@ -175,6 +191,13 @@ func registerCLIFlags() *cliFlags {
 		logLevel:          flag.String("log_level", "7", "日志级别 0~7"),
 		logPath:           flag.String("log_path", "", "日志文件路径（-log=file/both 时生效）"),
 		pprof:             flag.String("pprof", "", "pprof 监听地址 ip:port"),
+		upgrade:           flag.Bool("upgrade", false, "一键升级：发现并下掉旧服务/旧进程，平滑替换为当前新版并启动服务"),
+		upgradePlan:       flag.Bool("upgrade-plan", false, "只输出升级预检计划（JSON），不改动系统"),
+		upgradeFrom:       flag.String("upgrade-from", "", "指定待安装的新二进制路径（默认当前程序）"),
+		upgradeYes:        flag.Bool("upgrade-yes", false, "跳过交互确认，供脚本/自动化使用"),
+		updateCheck:       flag.Bool("update-check", false, "在线检查新版本（只读）"),
+		updateApply:       flag.Bool("update", false, "在线检查并自动下载、校验、平滑升级"),
+		updateURL:         flag.String("update-url", "", "更新源：下载页 base 或 client-version.json 完整地址"),
 	}
 }
 
@@ -229,6 +252,9 @@ func resolveCLI(f *cliFlags) error {
 			logs.Warn("NPC_DISCONNECT_TIMEOUT=%q 不是数字，已忽略", v)
 		}
 	}
+	if v := os.Getenv("NPC_UPDATE_URL"); v != "" {
+		envOverride.updateURL = strPtr(v)
+	}
 	addConfigPatch(envOverride.apply)
 
 	// 4) 显式命令行参数（最高优先级）。用 flag.Visit 判断，未传的参数不覆盖配置文件。
@@ -250,6 +276,9 @@ func resolveCLI(f *cliFlags) error {
 	}
 	if explicit["disconnect_timeout"] {
 		flagOverride.disconnectTimeout = intPtr(*f.disconnectTimeout)
+	}
+	if explicit["update-url"] {
+		flagOverride.updateURL = strPtr(*f.updateURL)
 	}
 	addConfigPatch(flagOverride.apply)
 
@@ -299,6 +328,9 @@ func readOverrideFile(path string) (configOverride, error) {
 		}
 		if has("web_port") {
 			o.webPort = intPtr(cfg.WebPort)
+		}
+		if has("update_url") {
+			o.updateURL = strPtr(cfg.UpdateUrl)
 		}
 		return o, nil
 	}

@@ -50,7 +50,8 @@ type Config struct {
 	TlsEnable         bool   `json:"tls_enable"`
 	ProxyUrl          string `json:"proxy_url"`
 	DisconnectTimeout int    `json:"disconnect_timeout"`
-	WebPort           int    `json:"web_port"` // 本地管理面板端口，0/空表示使用默认 9666
+	WebPort           int    `json:"web_port"`             // 本地管理面板端口，0/空表示使用默认 9666
+	UpdateUrl         string `json:"update_url,omitempty"` // 在线更新源（下载页 base），为空时自动探测
 }
 
 type Status struct {
@@ -90,6 +91,14 @@ func main() {
 
 	logs.SetLogger("store")
 	configureLogging(cli)
+
+	// 升级类命令是一次性动作，执行完直接退出，不进入面板/服务模式。
+	if handled, code := runUpgradeCommands(cli); handled {
+		if code != 0 {
+			os.Exit(code)
+		}
+		return
+	}
 
 	if *cli.showVersion {
 		printVersion()
@@ -188,35 +197,26 @@ func runInstallService(home string) {
 		os.Exit(1)
 	}
 
-	// 把配置同步到系统配置路径（service 启动时只读这个）
+	// 把配置同步到系统配置路径（root 上下文有写权限）
 	if err := saveSystemConfig(cfg); err != nil {
 		fmt.Printf("保存系统配置失败: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 把二进制复制到稳定路径，避免 service plist 里写绝对路径但用户移动了原文件
-	stablePath, err := installStableBinary()
-	if err != nil {
-		fmt.Printf("复制二进制到稳定路径失败: %v\n", err)
+	// 与面板「安装服务」走同一套平滑升级引擎：发现并下掉旧实例、原子替换、
+	// 重装并启动服务、失败自动回滚。提权子进程里不清理旧进程，避免误伤父 GUI。
+	opts := defaultUpgradeOptions()
+	opts.CleanProcesses = false
+	res := performUpgrade(opts, func(s string) {
+		fmt.Println("  " + s)
+		logs.Info("[install] %s", s)
+	})
+	fmt.Println(resultJSON(res))
+	if !res.OK {
+		fmt.Println("安装/升级失败:", res.Error)
 		os.Exit(1)
 	}
-
-	svcConfig := getServiceConfig()
-	svcConfig.Executable = stablePath
-	prg := &npcService{}
-	s, err := service.New(prg, svcConfig)
-	if err != nil {
-		fmt.Printf("创建服务失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err := s.Install(); err != nil {
-		fmt.Printf("安装服务失败: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("服务安装成功")
-	fmt.Println("已安装路径:", stablePath)
+	fmt.Println("服务安装成功（旧版本已自动下掉，新版本已启动）")
 	os.Exit(0)
 }
 
@@ -252,6 +252,11 @@ func startWebPanel(cliPort int, bootNotice bool) error {
 	mux.HandleFunc("/api/port", handlePort)
 	mux.HandleFunc("/api/service/install", handleServiceInstall)
 	mux.HandleFunc("/api/service/uninstall", handleServiceUninstall)
+	mux.HandleFunc("/api/upgrade/plan", handleUpgradePlan)
+	mux.HandleFunc("/api/upgrade/status", handleUpgradeStatus)
+	mux.HandleFunc("/api/upgrade/apply", handleUpgradeApply)
+	mux.HandleFunc("/api/update/check", handleUpdateCheck)
+	mux.HandleFunc("/api/update/apply", handleUpdateApply)
 
 	server := &http.Server{
 		Handler:      mux,
@@ -477,6 +482,10 @@ func handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		mu.Lock()
+		// 面板表单不含「更新源」字段时保留已探测到的地址，别被整份覆盖掉。
+		if cfg.UpdateUrl == "" {
+			cfg.UpdateUrl = curConfig.UpdateUrl
+		}
 		curConfig = cfg
 		mu.Unlock()
 
@@ -804,32 +813,12 @@ func installStableBinary() (string, error) {
 		return "", fmt.Errorf("获取当前可执行文件路径失败: %w", err)
 	}
 
-	var destDir, destPath string
-	switch runtime.GOOS {
-	case "windows":
-		// Windows：使用 ProgramData 下的固定目录
-		destDir = filepath.Join(os.Getenv("ProgramData"), "npc")
-		destPath = filepath.Join(destDir, "npc_gui.exe")
-	case "darwin":
-		if os.Geteuid() == 0 {
-			// root 上下文（兼容 -install-service）保持系统路径
-			destDir = "/usr/local/bin"
-			destPath = "/usr/local/bin/npc_gui"
-		} else {
-			// 用户级 LaunchAgent：复制到用户目录，全程不需要 sudo。
-			// 旧实现固定写 /usr/local/bin，普通用户安装必然失败。
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("获取用户主目录失败: %w", err)
-			}
-			destDir = filepath.Join(home, "Library", "Application Support", "npc")
-			destPath = filepath.Join(destDir, "npc_gui")
-		}
-	default:
-		// Linux：使用 /usr/local/bin
-		destDir = "/usr/local/bin"
-		destPath = "/usr/local/bin/npc_gui"
+	// 与升级引擎共用同一个稳定路径，避免两处逻辑漂移。
+	destPath, err := stableBinaryPath()
+	if err != nil {
+		return "", fmt.Errorf("确定稳定路径失败: %w", err)
 	}
+	destDir := filepath.Dir(destPath)
 
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return "", fmt.Errorf("创建目录 %s 失败: %w", destDir, err)
@@ -859,9 +848,9 @@ func copyBinary(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-
+	// 不能既 defer Close 又 return Close：重复关闭会掩盖真实的写入错误。
 	if _, err := out.ReadFrom(in); err != nil {
+		_ = out.Close()
 		return err
 	}
 	return out.Close()
@@ -890,16 +879,18 @@ func handleServiceInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	logs.Info("配置已保存到 %s", getUserConfigPath())
 
-	// 2) 通过权限提升完成实际的 service 安装（二进制复制 + plist/unit 写入）
-	if err := installServiceWithPrivilege(cfg); err != nil {
-		http.Error(w, "安装服务失败: "+err.Error(), 500)
+	// 2) 「安装服务」本身就是一次平滑升级：异步执行后由 /api/upgrade/status 轮询进度，
+	//    避免停服务 + 重启的耗时撞上面板的 HTTP 写超时。
+	if !upgJob.start("install", func(emit func(string)) UpgradeResult {
+		res := installServiceWithPrivilege(cfg, emit)
+		svcStatus = getServiceStatus()
+		return res
+	}) {
+		http.Error(w, "已有安装/升级任务正在进行", 409)
 		return
 	}
-
-	svcStatus = getServiceStatus()
-	logs.Info("服务安装成功")
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	logs.Info("安装/升级任务已启动")
+	writeJSON(w, map[string]bool{"ok": true, "started": true})
 }
 
 // handleServiceUninstall 卸载 service。
@@ -931,41 +922,31 @@ func handleServiceUninstall(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
-// installServiceWithPrivilege 在 GUI 进程内被调用。
+// installServiceWithPrivilege 在 GUI 进程内被调用，完成「安装即升级」。
 //
-// 核心原则：GUI 进程几乎永远不是 root。所有"写 /usr/local/bin / /Library/LaunchDaemons / /etc/npc
-// / /etc/systemd/system"的操作都必须在 root 上下文中完成。
+//   - macOS 用户级 LaunchAgent / Windows 管理员 / 已是 root：直接跑平滑升级引擎
+//   - Linux 普通用户：优先 pkexec 提权，由 root 子进程（-install-service）跑同一套引擎；
+//     提权不可用时仍尝试用户级 systemd（失败会明确报错，并提示 sudo ./npc_gui -upgrade）
 //
-//   - 已经 root（少数情况）：直接 installStableBinary + s.Install()
-//   - macOS 普通用户：先试 ~/Library/LaunchAgents 用户级；失败则通过 osascript 提权走 /Library/LaunchDaemons
-//   - Linux 普通用户：直接尝试 install，失败则尝试 pkexec 提权，再失败提示用户手动 sudo 重跑
-//   - Windows：直接尝试，失败提示以管理员身份运行
-func installServiceWithPrivilege(cfg Config) error {
-	// macOS 现在安装的是用户级 LaunchAgent，普通用户即可完成，全程不需要 sudo。
-	// 旧实现里先试用户级、失败再 escalateViaOsascript()；而该函数在「非终端」
-	// （即最常见的双击运行）时会直接返回「请在终端运行」，导致安装必然失败。
-	if runtime.GOOS == "darwin" {
-		return doInstall(cfg)
+// 不再使用旧的「直接 O_TRUNC 覆盖二进制 + s.Install()」路径：那条路径既不会
+// 停掉旧进程，也不会启动新服务，正是本次要修掉的问题。
+func installServiceWithPrivilege(cfg Config, emit func(string)) UpgradeResult {
+	if emit == nil {
+		emit = func(string) {}
+	}
+	if err := saveSystemConfig(cfg); err != nil {
+		logs.Info("同步系统配置跳过（通常需要 root）: %v", err)
 	}
 
-	if os.Geteuid() == 0 {
-		return doInstall(cfg)
-	}
-
-	// Linux：尝试 pkexec 提权
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" && os.Geteuid() != 0 {
 		if err := tryLinuxPkexec(); err == nil {
-			return nil
-		} else {
-			logs.Info("pkexec 提权失败或不可用: %v，将尝试直接 install", err)
+			emit("已通过 pkexec 在 root 上下文完成平滑升级")
+			return UpgradeResult{OK: true, ServiceRunning: true,
+				Steps: []string{"已通过 pkexec 在 root 上下文完成平滑升级"}}
 		}
+		emit("pkexec 提权不可用，尝试在当前用户上下文安装（失败可用 sudo ./npc_gui -upgrade）")
 	}
-
-	// fallback 直接 install（Windows 通常会直接失败，因为写注册表需要 admin）
-	if err := doInstall(cfg); err != nil {
-		return wrapInstallPermissionError(err)
-	}
-	return nil
+	return performUpgrade(defaultUpgradeOptions(), emit)
 }
 
 // tryLinuxPkexec 通过 pkexec 拉起 root 上下文执行 -install-service。
@@ -1008,56 +989,11 @@ func wrapInstallPermissionError(err error) error {
 	}
 }
 
-// testInstallAsUser 尝试在用户级（~/Library/LaunchAgents/）安装，返回是否成功。
-// 用于 macOS 用户级 fallback。注意：必须先把可执行文件复制到一个稳定位置，
-// 否则 LaunchAgent plist 里写绝对路径用户移动了原文件就启动不了。
+// testInstallAsUser 历史 fallback 入口，同样改走平滑升级引擎。
+// Deprecated: 保留仅为兼容旧调用点。
 func testInstallAsUser(exePath string, cfg Config) bool {
-	if exePath == "" {
-		return false
-	}
-	// macOS 用户级：拷贝到 ~/Library/Application Support/npc/npc_gui
-	home, err := os.UserHomeDir()
-	if err != nil {
-		logs.Info("获取用户主目录失败: %v", err)
-		return false
-	}
-	userStableDir := filepath.Join(home, "Library", "Application Support", "npc")
-	userStablePath := filepath.Join(userStableDir, "npc_gui")
-	if err := os.MkdirAll(userStableDir, 0755); err != nil {
-		logs.Info("创建 %s 失败: %v", userStableDir, err)
-		return false
-	}
-	if err := copyBinary(exePath, userStablePath); err != nil {
-		logs.Info("复制到 %s 失败: %v", userStablePath, err)
-		return false
-	}
-
-	svcConfig := getServiceConfig()
-	svcConfig.Option["UserService"] = true
-	svcConfig.Executable = userStablePath
-	prg := &npcService{}
-	s, err := service.New(prg, svcConfig)
-	if err != nil {
-		logs.Info("创建服务实例失败: %v", err)
-		return false
-	}
-	// 旧版本残留：先尝试 Install，遇到 "Init already exists" 才走 Uninstall + Install
-	if err := s.Install(); err != nil {
-		if !strings.Contains(err.Error(), "Init already exists") {
-			logs.Info("用户级 install 失败（需要 root 走系统级 LaunchDaemon）: %v", err)
-			return false
-		}
-		if uerr := s.Uninstall(); uerr != nil {
-			logs.Info("用户级 Uninstall 失败: %v", uerr)
-			return false
-		}
-		if err := s.Install(); err != nil {
-			logs.Info("用户级 Install 二次失败: %v", err)
-			return false
-		}
-	}
-	logs.Info("已安装用户级 LaunchAgent: %s", userStablePath)
-	return true
+	_ = exePath
+	return doInstall(cfg) == nil
 }
 
 // escalateViaOsascript 通过 macOS 系统对话框请求管理员权限，重新拉起 -install-service。
@@ -1096,41 +1032,15 @@ func escalateViaOsascript() error {
 	return nil
 }
 
-// doInstall 直接执行安装：复制二进制 + 写 service。调用方必须已经 root 或在 sudo 上层。
+// doInstall 是历史入口，保留签名给旧的调用点；内部统一走平滑升级引擎，
+// 避免任何路径重新退回「直接覆盖二进制 + Install 不启动」的旧行为。
+// Deprecated: 新代码请用 installServiceWithPrivilege / performUpgrade。
 func doInstall(cfg Config) error {
-	stablePath, err := installStableBinary()
-	if err != nil {
-		return fmt.Errorf("复制二进制到稳定路径失败: %w", err)
+	_ = cfg
+	res := performUpgrade(defaultUpgradeOptions(), nil)
+	if !res.OK {
+		return fmt.Errorf("安装/升级失败: %s", res.Error)
 	}
-
-	// 用户级安装没有 /etc/npc 的写权限，同步系统配置只做 best-effort；
-	// 服务的配置读取已改为优先用户配置目录，不依赖这一步成功。
-	if err := saveSystemConfig(cfg); err != nil {
-		logs.Info("同步系统配置跳过（通常需要 root）: %v", err)
-	}
-
-	svcConfig := getServiceConfig()
-	svcConfig.Executable = stablePath
-	prg := &npcService{}
-	s, err := service.New(prg, svcConfig)
-	if err != nil {
-		return fmt.Errorf("创建服务实例失败: %w", err)
-	}
-
-	// 先尝试 Install；如果旧 plist 残留导致 "Init already exists" 则先 Uninstall 再 Install
-	if err := s.Install(); err != nil {
-		if !strings.Contains(err.Error(), "Init already exists") {
-			return fmt.Errorf("安装服务失败: %w", err)
-		}
-		logs.Info("检测到旧 plist 残留，先卸载再安装")
-		if uerr := s.Uninstall(); uerr != nil {
-			return fmt.Errorf("卸载旧 plist 失败: %w（原错误: %v）", uerr, err)
-		}
-		if err := s.Install(); err != nil {
-			return fmt.Errorf("二次安装服务失败: %w", err)
-		}
-	}
-	logs.Info("服务安装完成: %s", stablePath)
 	return nil
 }
 

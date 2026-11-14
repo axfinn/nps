@@ -191,6 +191,42 @@
         </div>
 
         <div class="card">
+            <div class="card-title">版本升级 / 旧版本清理</div>
+            <div class="alert alert-info" style="font-size:13px">
+                <strong>平滑升级：</strong>会把机器上残留的旧服务、旧进程找出来并停掉卸载，
+                再原子替换二进制、<strong>保留原有连接配置</strong>并重启新服务；
+                任一步失败都会自动回滚到旧版本。也兼容老的命令行版
+                <code>Npc</code> / <code>nps-client-*</code> 服务，避免新旧客户端抢同一个 vkey。
+            </div>
+            <div class="status-row">
+                <div class="status-item">
+                    <div class="status-label">当前程序</div>
+                    <div id="upgCurrentVer" class="status-value">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">已安装服务</div>
+                    <div id="upgInstalledVer" class="status-value">-</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">在线最新</div>
+                    <div id="upgLatestVer" class="status-value">-</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>更新源（下载页地址，留空自动探测）</label>
+                <input type="text" id="upgUpdateUrl" placeholder="https://后台域名/static/download">
+            </div>
+            <div id="upgLegacyBox" class="alert alert-warning" style="display:none; font-size:12px"></div>
+            <div class="service-btns">
+                <button class="btn btn-sm btn-secondary" onclick="window.refreshUpgradePlan()">重新预检</button>
+                <button class="btn btn-sm btn-primary" onclick="window.applyLocalUpgrade()">一键升级</button>
+                <button class="btn btn-sm btn-secondary" onclick="window.checkOnlineUpdate()">检查更新</button>
+                <button class="btn btn-sm btn-success" onclick="window.applyOnlineUpgrade()">下载并升级</button>
+            </div>
+            <div id="upgResultBox" class="logs" style="height:150px; margin-top:12px">尚未执行升级</div>
+        </div>
+
+        <div class="card">
             <div class="card-title">运行日志</div>
             <div id="logs" class="logs">等待启动...</div>
         </div>
@@ -240,6 +276,11 @@
             const portInput = document.getElementById('webPort');
             if (document.activeElement !== portInput && portInput.dataset.dirty !== '1') {
                 portInput.value = (data.config && data.config.web_port > 0) ? data.config.web_port : 9666;
+            }
+
+            const urlInput = document.getElementById('upgUpdateUrl');
+            if (data.config && data.config.update_url && document.activeElement !== urlInput) {
+                urlInput.value = data.config.update_url;
             }
         }
 
@@ -419,10 +460,11 @@
             try {
                 const res = await fetch('/api/service/install', {method: 'POST'});
                 if (res.ok) {
-                    alert('服务安装成功！');
+                    // 安装即升级：旧实例会被自动找出来下掉，进度由轮询展示。
+                    upgText('upgResultBox', '安装/升级任务已启动，正在发现并下掉旧版本…');
+                    pollUpgradeStatus();
                 } else {
                     const errText = await res.text();
-                    // 检查是否是权限问题
                     if (errText.includes('需要管理员权限') || errText.includes('请在终端运行')) {
                         alert('安装失败: ' + errText + '\n\n提示：请关闭此程序，在终端中运行以获得权限支持');
                     } else {
@@ -450,8 +492,132 @@
             }
         }
 
+        let upgPollTimer = null;
+
+        function upgText(id, text) {
+            document.getElementById(id).textContent = text;
+        }
+
+        async function refreshUpgradePlan() {
+            try {
+                const res = await fetch('/api/upgrade/plan');
+                const p = await res.json();
+                upgText('upgCurrentVer', 'v' + (p.current_version || '-'));
+                upgText('upgInstalledVer', p.service_installed ? ('v' + p.installed_version) : '未安装');
+                const box = document.getElementById('upgLegacyBox');
+                const items = (p.legacy_services || []).concat(p.legacy_processes || []);
+                if (items.length) {
+                    const lines = items.map(function (i) {
+                        return (i.note || i.kind) + ' ' + i.name +
+                            (i.pid ? ' (PID ' + i.pid + ')' : '') +
+                            (i.version && i.version !== 'unknown' ? ' v' + i.version : '') +
+                            (i.path ? ' — ' + i.path : '');
+                    });
+                    box.textContent = '发现 ' + items.length + ' 个旧实例，升级时会先停掉并下掉：\n' + lines.join('\n');
+                    box.style.whiteSpace = 'pre-wrap';
+                    box.style.display = 'block';
+                } else {
+                    box.style.display = 'none';
+                }
+                if (p.reason) upgText('upgResultBox', p.reason);
+                return p;
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function saveUpdateUrlIfChanged() {
+            const cfg = getFormData();
+            cfg.update_url = document.getElementById('upgUpdateUrl').value.trim();
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(cfg)
+            });
+            if (!res.ok) throw new Error('保存更新源失败: ' + await res.text());
+            return cfg.update_url;
+        }
+
+        async function checkOnlineUpdate() {
+            upgText('upgResultBox', '正在检查更新…');
+            try {
+                await saveUpdateUrlIfChanged();
+                const res = await fetch('/api/update/check');
+                const c = await res.json();
+                upgText('upgLatestVer', c.ok ? ('v' + c.latest_version) : '无法获取');
+                let msg = c.message || '';
+                if (c.base_url) msg += '\n更新源: ' + c.base_url;
+                if (c.has_update) msg += '\n可用包: ' + c.package_name;
+                upgText('upgResultBox', msg);
+            } catch (e) {
+                upgText('upgResultBox', '检查更新失败: ' + e.message);
+            }
+        }
+
+        async function startUpgradeJob(url) {
+            upgText('upgResultBox', '升级任务已启动，正在处理…');
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: '{}'
+                });
+                if (!res.ok) {
+                    upgText('upgResultBox', '启动升级失败: ' + await res.text());
+                    return;
+                }
+                pollUpgradeStatus();
+            } catch (e) {
+                upgText('upgResultBox', '启动升级失败: ' + e.message);
+            }
+        }
+
+        async function applyLocalUpgrade() {
+            const p = await refreshUpgradePlan();
+            if (p && !p.can_upgrade) { alert(p.reason || '当前无法升级'); return; }
+            const found = p ? (p.legacy_services || []).length + (p.legacy_processes || []).length : 0;
+            if (!confirm('将把旧服务/旧进程（发现 ' + found + ' 个）停掉并卸载，替换为当前新版后重启服务。\n配置会保留，失败自动回滚。继续？')) return;
+            await startUpgradeJob('/api/upgrade/apply');
+        }
+
+        async function applyOnlineUpgrade() {
+            if (!confirm('将检查新版本、下载校验后自动平滑升级（旧服务会被停掉后重启），继续？')) return;
+            try { await saveUpdateUrlIfChanged(); } catch (e) { alert(e.message); return; }
+            await startUpgradeJob('/api/update/apply');
+        }
+
+        async function pollUpgradeStatus() {
+            try {
+                const res = await fetch('/api/upgrade/status');
+                const s = await res.json();
+                let text = (s.steps || []).join('\n');
+                if (s.result) {
+                    text += '\n\n' + (s.result.ok ? '✓ 升级成功' : '✗ 升级失败: ' + (s.result.error || '未知错误'));
+                    if (s.result.rolled_back) text += '\n已自动回滚到旧版本';
+                    if (s.result.backup_binary) text += '\n旧版备份: ' + s.result.backup_binary;
+                    if (s.result.service_port_hint) text += '\n' + s.result.service_port_hint;
+                }
+                if (text) {
+                    const el = document.getElementById('upgResultBox');
+                    el.textContent = text;
+                    el.scrollTop = el.scrollHeight;
+                }
+                if (s.running && !upgPollTimer) {
+                    upgPollTimer = setInterval(pollUpgradeStatus, 1200);
+                } else if (!s.running && upgPollTimer) {
+                    clearInterval(upgPollTimer);
+                    upgPollTimer = null;
+                    refreshUpgradePlan();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
         fetchStatus();
         setInterval(fetchStatus, 2000);
+        refreshUpgradePlan();
+        pollUpgradeStatus();
     </script>
 </body>
 </html>

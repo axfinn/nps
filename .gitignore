@@ -15,6 +15,9 @@ conf/nps.local.conf
 *.env
 .env
 
+# 构建期生成的客户端版本清单（镜像内由 Dockerfile.nps 按本次产物重新生成）
+web/static/download/client-version.json
+
 # 本地 e2e 测试编译产物（约 12MB，勿入库）
 nps_bin_test
 
